@@ -1,0 +1,54 @@
+# Git does NOT read .dockerignore. Everything excluded there for secrecy
+# reasons has to be repeated here, or publishing this repo leaks it.
+#
+# Note: keep the comments in this file generic. An exclusion list that explains
+# internal hostnames and key paths in detail leaks them just as effectively as
+# committing the files would.
+
+# ---- credentials: never, under any circumstances ----
+.gh
+.f
+.k
+.atkey
+.flytoken
+.admintoken
+.env
+*.pem
+*.key
+*.p12
+id_ed25519*
+.flyapp
+
+# ---- private key-manager client helpers ----
+# Operational tooling for a private stack, not part of the app.
+src/cr_*.mjs
+
+# ---- private deployment stack ----
+# Reverse-proxy, SSO and internal hostnames for the self-hosted instance.
+deploy/
+
+# ---- internal working notes ----
+# Project memory: internal addresses, host access recipes, decision log.
+# Working notes, not public documentation.
+MEMORY.md
+DECISIONS.md
+STATE.md
+
+# ---- security audit ----
+# Documents findings that are not yet all fixed on the live deployment.
+# Publishing it would amount to an exploit guide. Re-include once closed.
+docs/SECURITY_AUDIT.md
+
+# ---- build artefacts and local data ----
+.venv/
+__pycache__/
+*.pyc
+output/
+_*.db
+_*.html
+
+# ---- throwaway probe and screenshot scripts ----
+# Investigation tooling; keep the repo to the actual application.
+src/probe*.py
+src/shot*.py
+src/seed_feedback.py

@@ -1,0 +1,1767 @@
+<!doctype html>
+<html lang="en-nz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auckland Live Train Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous">
+</script>
+<style>
+  :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
+         /* --line was 1.36:1 against the panel: invisible in sunlight. It stays,
+            but only for dividers INSIDE a panel, where it is decoration. Anything
+            that bounds a control uses --edge, which clears 3:1 (1.4.11). */
+         --line:#2b3440; --edge:#626D7E;
+         --accent:#1F5BD7; --focus:#7FB3FF;
+         /* --red was referenced by three 'selected' rules and never defined, so the
+            selected state silently fell back to currentColor. */
+         --red:#7FB3FF; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+              font:14px/1.45 "Segoe UI",system-ui,sans-serif; overflow:hidden; }
+  #map { position:absolute; inset:0; background:var(--bg); }
+  /* OSM tiles are free of charge/keys; darken them in CSS to match the UI */
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.72) contrast(1.05) saturate(.55); }
+  .panel { position:absolute; z-index:600; background:var(--panel);
+           border:1px solid var(--line); border-radius:12px;
+           box-shadow:0 8px 28px rgba(0,0,0,.5); }
+  #hud { top:12px; left:12px; padding:12px 14px; min-width:226px; max-width:260px; }
+  #hud h1 { margin:0; font-size:15px; font-weight:600; }
+  /* Header row carries the collapse toggle. The whole row is the hit target —
+     a 14px chevron alone is a miserable thing to tap on a phone. */
+  #hudbar { display:flex; align-items:center; gap:8px; cursor:pointer; min-height:44px;
+            user-select:none; margin:-4px -6px 2px; padding:4px 6px;
+            border-radius:7px; }
+  #hudbar:hover { background:#1f2733; }
+  #chev { margin-left:auto; color:var(--muted); font-size:12px; line-height:1;
+          transition:transform .18s ease; }
+  #hud.collapsed #chev { transform:rotate(-90deg); }
+  #hudbody { max-height:62vh; overflow:auto; }
+  #hud.collapsed #hudbody { display:none; }
+  #hud.collapsed #sub { display:none; }
+  #hud.collapsed #stat { margin-bottom:0; }
+  #sub { color:var(--muted); font-size:11px; margin-bottom:8px; }
+  #stat { font-size:12.5px; margin-bottom:10px; }
+  #stat b { font-size:19px; font-weight:600; }
+  #stat .age { color:var(--muted); font-size:11.5px; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%;
+         background:#3fb950; margin-right:5px; vertical-align:1px; }
+  .dot.stale { background:#d29922; } .dot.dead { background:#f85149; }
+  .legend { display:flex; flex-direction:column; gap:4px;
+            border-top:1px solid var(--line); padding-top:9px; }
+  .legend label { display:flex; align-items:center; gap:7px; cursor:pointer;
+                  font-size:12.5px; user-select:none; }
+  .legend .n { color:var(--muted); margin-left:auto; font-variant-numeric:tabular-nums; }
+  .swatch { width:10px; height:10px; border-radius:50%; flex:0 0 auto;
+            box-shadow:0 0 0 1.5px rgba(255,255,255,.35); }
+  .err { color:#f85149; font-size:11.5px; margin-top:8px; }
+  .note { color:var(--muted); font-size:12px; margin-top:9px;
+          border-top:1px solid var(--line); padding-top:8px; }
+  #list { bottom:12px; left:12px; width:252px; max-height:40vh; overflow:auto;
+          padding:8px 4px 8px 10px; font-size:12px; }
+  #list .row { display:flex; gap:6px; align-items:baseline; padding:3px 6px 3px 0;
+               cursor:pointer; border-radius:6px; }
+  #list .row:hover { background:#1f2733; }
+  #list .eta { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+  #list .late { color:#f0883e; }
+  #list .unit { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .pop .unit { display:inline-block; background:#232c38; border:1px solid var(--line);
+               border-radius:5px; padding:0 5px; font-size:11px; letter-spacing:.3px; }
+  .train { transition: transform 1.6s linear; }
+  /* Out-of-service stock: muted, hollow, and visually subordinate to services */
+  #list .row.oos { opacity:.62; }
+  #list .row.oos .where { color:var(--muted); font-size:11px; margin-left:auto; }
+  .pop .oostag { display:inline-block; background:#2a313c; color:var(--muted);
+                 border-radius:5px; padding:0 5px; font-size:12px; }
+  /* feedback */
+  .flag { display:inline-block; border-radius:5px; padding:1px 5px;
+          font-size:12px; font-weight:600; margin:0 2px 0 5px;
+          vertical-align:baseline; }
+  .flag.s1 { background:#3a3520; color:#d9c57a; }
+  .flag.s2 { background:#45321d; color:#f0a35e; }
+  .flag.s3 { background:#4a2224; color:#ff8a8a; }
+  /* Praise is not a fault: green, and it never gets a warning triangle. */
+  .good { display:inline-block; border-radius:5px; padding:1px 5px;
+          font-size:12px; font-weight:600; margin:0 2px 0 5px;
+          background:#1d3a24; color:#8fd79b; vertical-align:baseline; }
+  /* Pee-train status. Deliberately louder than a severity flag: it is a
+     verdict on the unit, not a single report. */
+  .pee { display:inline-block; border-radius:5px; padding:1px 5px;
+          font-size:12px; font-weight:700; margin:0 2px 0 5px;
+          letter-spacing:.02em; white-space:nowrap;
+          vertical-align:baseline; }
+  .pee.p1 { background:#3a3520; color:#d9c57a; }
+  .pee.p2 { background:#45321d; color:#f0a35e; }
+  .pee.p3 { background:#5a1f22; color:#ffb4b4; }
+  /* The warning triangle gets a soft glow so a flagged unit is findable at a
+     glance on a map holding 85 trains. */
+  .train.flagged svg { filter:drop-shadow(0 0 3.5px rgba(0,0,0,.9)); }
+  .wmini { font-size:11px; line-height:1; margin-left:3px; cursor:help; }
+  .wmini.p1, .wmini.s1 { color:#d9c57a; }
+  .wmini.p2, .wmini.s2 { color:#f0a35e; }
+  .wmini.p3, .wmini.s3 { color:#ff8a8a; }
+  .pop .reports { margin-top:7px; border-top:1px solid var(--line); padding-top:6px;
+                  font-size:11px; color:var(--muted); max-height:96px; overflow:auto; }
+  .pop .reports div { margin-bottom:3px; }
+  .btn { display:inline-block; margin-top:8px; background:#243041; color:var(--fg);
+         border:1px solid var(--edge); border-radius:7px; min-height:44px; padding:11px 16px;
+         font-size:14px; cursor:pointer; font-family:inherit; }
+  .btn:hover { background:#2c3a4e; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#FFFFFF; }
+  .btn.primary:hover { background:#2a6ae0; }
+  #fbwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
+            display:none; align-items:center; justify-content:center; }
+  #fbwrap.on { display:flex; }
+  #fb { width:330px; max-width:92vw; padding:16px 18px; max-height:88vh; overflow:auto; }
+  #fb h2 { margin:0 0 3px; font-size:15px; }
+  #fb .hint { color:var(--muted); font-size:11px; margin-bottom:11px; }
+  #fb label.f { display:block; font-size:11.5px; color:var(--muted); margin:9px 0 3px; }
+  #fb input, #fb select, #fb textarea {
+      width:100%; box-sizing:border-box; background:#0f141b; color:var(--fg);
+      border:1px solid var(--edge); border-radius:7px; min-height:44px; padding:11px 10px;
+      font:inherit; font-size:14px; }
+  #fb textarea { resize:vertical; min-height:52px; }
+  #fb .row2 { display:flex; gap:8px; } #fb .row2 > * { flex:1; }
+  #fb .acts { display:flex; gap:8px; justify-content:flex-end; margin-top:13px;
+              /* The form is long and the panel scrolls, so on a short screen Send
+                 sat below the fold at the end of a 90-second task. Sticking the
+                 action row to the bottom of the scroll box keeps it reachable
+                 without shortening the form. */
+              position:sticky; bottom:-16px; background:var(--panel);
+              padding:10px 0 2px; margin-bottom:-2px; border-top:1px solid var(--line); }
+  #fb .msg { font-size:11.5px; margin-top:9px; min-height:15px; }
+  #fb .msg.bad { color:#f85149; } #fb .msg.good { color:#3fb950; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background:var(--panel); color:var(--fg); }
+  .leaflet-popup-content { margin:10px 12px; }
+  .pop b { font-size:13.5px; } .pop small { color:var(--muted); }
+  .leaflet-container { background:var(--bg); }
+  /* Bottom-sheet toggle for the arrivals list. Declared before the phone media
+     query so that query can turn it on — a later base rule would win instead. */
+  /* ---- journey planner panel (same modal pattern as the report form) ---- */
+  #stwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
+            display:none; align-items:center; justify-content:center; }
+  #stwrap.on { display:flex; }
+  #st { width:340px; max-width:92vw; padding:16px 18px; max-height:88vh; overflow:auto; }
+  #st h2 { margin:0 0 3px; font-size:15px; }
+  #st .hint { color:var(--muted); font-size:11px; margin-bottom:11px; }
+  #jpwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
+            display:none; align-items:center; justify-content:center; }
+  #jpwrap.on { display:flex; }
+  #jp { width:360px; max-width:92vw; padding:16px 18px; max-height:88vh; overflow:auto; }
+  #jp h2 { margin:0 0 3px; font-size:15px; }
+  #jp .hint { color:var(--muted); font-size:11px; margin-bottom:11px; }
+  #jp label.f { display:block; font-size:11.5px; color:var(--muted); margin:9px 0 3px; }
+  #jp select { width:100%; box-sizing:border-box; background:#0f141b; color:var(--fg);
+               border:1px solid var(--line); border-radius:7px; padding:6px 8px;
+               font:inherit; font-size:12.5px; }
+  /* Shown on every width. On desktop the arrivals list occupies the lower
+     left, so the pill sits bottom-CENTRE where nothing else lives; the phone
+     media query moves it next to the Arrivals pill. */
+  #planbtn { display:block; position:absolute; z-index:650; bottom:12px;
+             left:50%; transform:translateX(-50%);
+             background:var(--panel); color:var(--fg);
+             border:1px solid var(--edge); border-radius:999px;
+             min-height:52px; padding:0 20px; font:inherit; font-size:15px; cursor:pointer;
+             box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  .jd { border-top:1px solid var(--line); padding:9px 0; }
+  .jt { font-size:13.5px; }
+  .jrisk { margin-top:5px; border-radius:6px; padding:5px 7px; font-size:11.5px;
+           line-height:1.45; }
+  .jrisk.p1 { background:#3a3520; color:#d9c57a; }
+  .jrisk.p2 { background:#45321d; color:#f0a35e; }
+  .jrisk.p3 { background:#5a1f22; color:#ffb4b4; font-weight:700; }
+  .jok { margin-top:5px; font-size:11.5px; color:#8fd98f; }
+  .jun { margin-top:5px; font-size:11px; line-height:1.4; }
+
+  /* ---- visual carriage selector ---- */
+  #lenpick { display:flex; gap:6px; }
+  #lenpick .len { flex:1; display:flex; flex-direction:column; align-items:center;
+                  gap:1px; background:#0f141b; color:var(--muted);
+                  border:1px solid var(--edge); border-radius:7px;
+                  padding:6px 2px; font:inherit; font-size:11.5px; cursor:pointer; }
+  #lenpick .len:hover { border-color:#3b4654; }
+  #lenpick .len.on { background:#1d2836; border-color:var(--red); color:var(--fg); }
+  #carpick { display:flex; gap:6px; }
+  /* Six cars plus "not sure" in one row needs tighter cells; the labels are
+     single digits so they still read fine. */
+  #carpick.six { gap:3px; }
+  #carpick.six .car { padding:5px 0; }
+  #carpick.six .cx { font-size:11px; }
+  #carpick .car { flex:1; display:flex; flex-direction:column; align-items:center;
+                  gap:1px; background:#0f141b; color:var(--muted);
+                  border:1px solid var(--edge); border-radius:7px;
+                  padding:6px 2px; font:inherit; cursor:pointer; min-width:0; }
+  #carpick .car:hover { border-color:#3b4654; }
+  #carpick .car.on { background:#1d2836; border-color:var(--red); color:var(--fg); }
+  #carpick .cx { font-size:14px; line-height:1; }
+  #carpick .cl { font-size:12px; font-weight:700; }
+  #carpick .cs { font-size:11.5px; opacity:.75; }
+  #carnote { color:var(--muted); font-size:12px; line-height:1.4; margin-top:4px; }
+  .avoid.dim { background:#2a2f38; color:#9aa7b4; }
+  .hint.warn { background:#3a2a1c; color:#f0b97a; border-radius:5px;
+               padding:5px 7px; margin-top:4px; }
+  /* People reports are shown in a neutral slate, never the fault red: the
+     train is not the thing being reported. */
+  .tag.people { background:#2d3550; color:#a9bbe8; }
+  /* Permanent station labels. Deliberately low-contrast and non-interactive:
+     they must name the network without competing with the trains, which are
+     the live information. pointer-events:none keeps a label from eating a
+     click aimed at a train marker underneath it. */
+  /* Heavier halo than a normal label needs: these sit over a busy satellite-ish
+     basemap that already carries its own place names, and without the dark
+     outline the two sets of text blend into each other. */
+  /* pointer-events:none is DELIBERATE and load-bearing. These labels are ~53px
+     wide while adjacent inner-city stations are ~15px apart, so the labels
+     overlap heavily. Making them clickable meant whichever label happened to
+     render last sat on top and swallowed clicks meant for its neighbour AND
+     for the dot underneath — elementFromPoint returned the wrong station's
+     tooltip every time. Clicks belong to the hit circles only. */
+  .stname { pointer-events:none;
+            background:transparent; border:0; box-shadow:none; padding:0;
+            color:#cfe0f2; font-size:11.5px; font-weight:700; white-space:nowrap;
+            text-shadow:0 0 4px #0d1117, 0 0 3px #0d1117, 0 0 2px #0d1117,
+                        1px 1px 2px #0d1117, -1px -1px 2px #0d1117; }
+  .stname::before { display:none; }
+  /* Below the default zoom the labels overlap into mush, so they are hidden
+     and the dots speak for themselves. The Hamilton-line stations stretch the
+     network to 105 km, so zooming out far enough to see it all is a legitimate
+     thing to do — it just can't carry 48 labels. */
+  .lowzoom .stname { display:none; }
+  /* Departure board rows. Grid rather than flex so the times align down the
+     column — a board where the numbers wander is harder to scan than a list. */
+  .brow { display:grid; grid-template-columns:46px 1fr auto 38px; gap:8px;
+          align-items:center; padding:6px 2px;
+          border-bottom:1px solid #1e2631; font-size:12px; }
+  .brow:last-child { border-bottom:0; }
+  .btime { font-weight:700; color:#e6edf3; }
+  /* A tracked departure gets a small green pulse. Reduced-motion users get the
+     dot without the animation — the colour still carries the meaning. */
+  .livedot { display:inline-block; width:7px; height:7px; border-radius:50%;
+             background:#3fb950; margin-right:5px; vertical-align:middle;
+             box-shadow:0 0 5px #3fb950; animation:lp 2s ease-in-out infinite; }
+  @keyframes lp { 0%,100% { opacity:1 } 50% { opacity:.45 } }
+  @media (prefers-reduced-motion: reduce) { .livedot { animation:none } }
+  .bdest { color:#c3ccd8; overflow:hidden; text-overflow:ellipsis;
+           white-space:nowrap; }
+  .bmin { text-align:right; color:#8893a5; font-size:11px; }
+  .wmini.rowdy { color:#e8edf4; }
+  /* Live people report on a popup. Slate, not fault-red: this is about the
+     service right now, not a defect in the vehicle. */
+  .rowdy-line { margin-top:6px; font-size:11px; background:#232838;
+                color:#cdd6e4; border-radius:5px; padding:3px 6px; }
+  .rowdy-line .dim2 { color:#8893a5; }
+  /* Inferred 6-car couple. Deliberately neutral blue-grey, not a warning
+     colour: being a 6-car is information, not a fault. */
+  .couple { margin-top:6px; font-size:11px; background:#16202c; color:#9ec5e8;
+            border-radius:5px; padding:3px 6px; line-height:1.4; }
+  .inf { display:inline-block; width:12px; height:12px; line-height:12px;
+         text-align:center; border-radius:50%; background:#2a3a4a;
+         color:#9ec5e8; font-size:11.5px; cursor:help; }
+  .tag.warnish { background:#45321d; color:#f0a35e; }
+
+  /* ---- reports log inside a popup ---- */
+  .popacts { display:flex; gap:5px; margin-top:7px; }
+  .btn.ghost { background:transparent; }
+  .avoid { margin-top:6px; font-size:11px; background:#45321d; color:#f0a35e;
+           border-radius:5px; padding:3px 6px; }
+  .log { max-height:210px; overflow:auto; }
+  .lr { border-top:1px solid var(--line); padding:6px 0; }
+  .lh { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  .lh .when { color:var(--muted); font-size:11.5px; margin-left:auto; }
+  .ln { font-size:11.5px; margin:3px 0; line-height:1.4; }
+  .lv { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:12px; }
+  .vote { background:#0f141b; color:var(--fg); border:1px solid var(--edge);
+          border-radius:999px; min-height:44px; padding:10px 14px; font:inherit; font-size:13px;
+          cursor:pointer; }
+  .vote.on { border-color:var(--red); background:#1d2836; }
+  .vote:disabled { opacity:.5; cursor:default; }
+  .stale { display:inline-block; border-radius:5px; padding:1px 5px;
+           font-size:12px; background:#2a2f38; color:#9aa7b4; }
+  .muted { color:var(--muted); font-size:11px; }
+  .tag { display:inline-block; border-radius:5px; padding:1px 5px;
+         font-size:12px; background:#1d2530; color:#9aa7b4; }
+
+  /* Transient confirmation. Lives above the modals so a vote cast inside a
+     popup can still be acknowledged. */
+  #toast { position:absolute; z-index:1000; bottom:64px; left:50%;
+           transform:translateX(-50%); background:#1d2836; color:var(--fg);
+           border:1px solid var(--line); border-radius:999px;
+           padding:7px 14px; font-size:12px; opacity:0; pointer-events:none;
+           transition:opacity .18s; box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  #toast.on { opacity:1; }
+
+  #sheetbtn { display:none; position:absolute; z-index:650; bottom:12px;
+              left:50%; transform:translateX(-50%); background:var(--panel);
+              color:var(--fg); border:1px solid var(--edge); border-radius:999px;
+              min-height:52px; padding:0 20px; font:inherit; font-size:15px; cursor:pointer;
+              box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  /* Phone. The panel used to eat 57% of a 390x844 screen; now it collapses to
+     a single line and the arrivals list becomes an opt-in bottom sheet. */
+  @media (max-width:640px){
+    #hud { top:8px; left:8px; right:8px; max-width:none; min-width:0;
+           padding:9px 11px; }
+    /* The zoom buttons landed on top of the collapse chevron. Pinch-zoom is
+       the natural gesture on a phone, so drop them rather than shuffle them. */
+    .leaflet-control-zoom { display:none; }
+    #hudbody { max-height:52vh; }
+    #stat b { font-size:17px; }
+    #list { left:8px; right:8px; bottom:72px; width:auto;
+           max-height:calc(100vh - 190px); display:none; }
+    #list.open { display:block; }
+    /* Both pills share the bottom bar. Widths vary with the label, so they are
+       anchored to opposite sides of centre with a gap rather than nudged by a
+       guessed offset — an earlier guess overlapped them by 18px. */
+    #sheetbtn { display:block; left:auto; right:calc(50% + 5px);
+                transform:none; }
+    #planbtn  { display:block; left:calc(50% + 5px); transform:none; }
+    #fb, #jp { width:auto; margin:0 10px; }
+  }
+
+
+  /* ---- Wave 1: accessibility floor -------------------------------------- */
+  /* A-05: the stylesheet had no :focus rule at all, so a keyboard user had no
+     idea where they were. :focus-visible, not :focus, so a mouse click on a
+     button does not leave a ring behind. */
+  :focus-visible { outline:3px solid var(--focus); outline-offset:2px; border-radius:4px; }
+  .leaflet-container :focus-visible { outline:3px solid var(--focus); outline-offset:1px; }
+
+  /* Visually hidden but readable by a screen reader. */
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+             overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+
+  /* A-23: honour an OS-level request for less motion. Colour and position still
+     carry every meaning here, so nothing is lost by stopping the movement. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.001ms !important;
+                             animation-iteration-count:1 !important;
+                             transition-duration:.001ms !important;
+                             scroll-behavior:auto !important; }
+  }
+
+  /* A-02 (legend): the line toggles were a bare 13px checkbox inside a 19px
+     label — the smallest targets in the app, and on the main screen. The whole
+     label becomes the target rather than scaling the box, so the hit area
+     covers the swatch and name the user is actually aiming at. */
+  #legend label { display:flex; align-items:center; gap:7px; min-height:44px;
+                  padding:0 6px; margin:0 -6px; border-radius:7px; cursor:pointer; }
+  #legend label:hover { background:#1f2733; }
+  #legend input[type="checkbox"] { width:18px; height:18px; flex:none;
+                                   accent-color:var(--focus); cursor:pointer; }
+
+  /* A set number is a link to that train's card, wherever it appears. It keeps
+     the colour of the badge it replaces so the risk reading is unchanged. */
+  .setlink { font:inherit; cursor:pointer; border:1px solid transparent;
+             min-height:44px; padding:0 8px; border-radius:6px; }
+  .setlink:hover { filter:brightness(1.18); }
+  .setlink.bare { background:none; border:0; color:inherit; padding:0 2px;
+                  min-height:0; text-decoration:underline;
+                  text-underline-offset:2px; font-weight:inherit; }
+  .setlink.bare:hover { filter:none; color:#fff; }
+  /* In a dense board row the tag must not force the row taller; the row itself
+     is already over 44px, so the padded hit area is enough. */
+  .brow .setlink { min-height:0; padding:4px 8px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="hud" class="panel">
+  <div id="hudbar" role="button" tabindex="0" aria-expanded="true"
+       aria-controls="hudbody" title="Show or hide the details">
+    <h1>Auckland trains — live</h1>
+    <span id="chev">▾</span>
+  </div>
+  <div id="sub">Auckland Transport open data</div>
+  <div id="stat" aria-live="polite" aria-atomic="true"><span class="dot dead"></span>connecting…</div>
+  <div id="hudbody">
+    <div class="legend" id="legend"></div>
+    <div class="err" id="err" role="alert"></div>
+    <div class="note" id="note">Updates every 10s.</div>
+  </div>
+</div>
+<button id="sheetbtn">Arrivals</button>
+<button id="planbtn">&#128337; Plan</button>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="list" class="panel"></div>
+
+<!-- Journey planner. Deliberately a separate panel from the map: planning is a
+     different intent from browsing live positions, and cramming it into the HUD
+     would wreck the phone layout that was carefully got down to 10%. -->
+<div id="jpwrap">
+  <div id="jp" class="panel">
+    <h2>Plan a journey</h2>
+    <div class="hint">Direct trains only. We'll warn you if the train
+      that turns up has pee reports against it.</div>
+    <div class="row2">
+      <div>
+        <label class="f" for="jpfrom">From</label>
+        <select id="jpfrom"></select>
+      </div>
+      <div>
+        <label class="f" for="jpto">To</label>
+        <select id="jpto"></select>
+      </div>
+    </div>
+    <div class="acts" style="margin-top:8px">
+      <button class="btn ghost" id="jpgps">&#128205; Use my location</button>
+      <button class="btn primary" id="jpgo">Find trains</button>
+    </div>
+    <div class="msg" id="jpmsg"></div>
+    <div id="jpres"></div>
+    <div class="acts"><button class="btn" id="jpclose">Close</button></div>
+  </div>
+</div>
+
+<!-- Station departure board. Opened by tapping a station on the map. Uses the
+     same risk annotation as the planner, so a board and a planned journey can
+     never disagree about the same train. -->
+<div id="stwrap">
+  <div id="st" class="panel">
+    <h2 id="sttitle">Station</h2>
+    <div class="hint">Next departures. A set number appears only once AT has
+      actually assigned one.</div>
+    <div class="msg" id="stmsg"></div>
+    <div id="stres"></div>
+    <div class="acts"><button class="btn" id="stclose">Close</button></div>
+  </div>
+</div>
+
+<!-- Report form. Hidden until a train is picked, so a report is always
+     attached to a specific unit rather than floating free. -->
+<div id="fbwrap">
+  <div id="fb" class="panel">
+    <h2>Report a train</h2>
+    <div class="hint" id="fbunit"></div>
+    <label class="f" for="fbcat">What about it?</label>
+    <select id="fbcat"></select>
+    <div class="row2">
+      <div>
+        <label class="f" for="fbsev">How bad?</label>
+        <select id="fbsev"></select>
+      </div>
+      <div>
+        <label class="f" for="fbwhen">When</label>
+        <input id="fbwhen" type="date">
+      </div>
+    </div>
+    <div id="fbnoterow">
+      <label class="f" for="fbnote">Notes <span id="fbcount"></span></label>
+      <textarea id="fbnote" placeholder="What did you notice?"></textarea>
+    </div>
+    <!-- People reports take a FIXED behaviour and no free text. A text box
+         next to "report the people" collects descriptions of individuals, and
+         a closed list simply cannot. See feedback.BEHAVIOURS. -->
+    <div id="fbpeoplewrap" hidden>
+      <label class="f" for="fbbeh">What were they doing?</label>
+      <select id="fbbeh"></select>
+      <div class="hint warn">
+        This reports <b>behaviour on a service</b>, not people. It clears
+        automatically when the train reaches its last stop.
+        <b>If you feel unsafe, contact AT or the Police — not this map.</b>
+      </div>
+    </div>
+
+    <!-- Visual carriage picker. A 3-car set is AMP+AMT+AMA; many services run
+         as SIX cars (two sets coupled), so the rider first says how long the
+         train was and the picker redraws. Positions count from the FRONT in
+         the direction of travel, which is the only reference a rider actually
+         has — "car B" is meaningless on a 6-car.
+         "Not sure" stays a first-class answer: a forced guess would point
+         people away from the wrong carriage, which is worse than no data. -->
+    <div class="hint" id="fbconsist"></div>
+    <label class="f">How long was the train?</label>
+    <div id="lenpick" role="radiogroup" aria-label="Train length">
+      <button type="button" class="len" data-n="3" role="radio" aria-checked="false">
+        3 cars <span class="cs">one set</span>
+      </button>
+      <button type="button" class="len" data-n="6" role="radio" aria-checked="false">
+        6 cars <span class="cs">two sets</span>
+      </button>
+      <button type="button" class="len" data-n="" role="radio" aria-checked="false">
+        Not sure
+      </button>
+    </div>
+    <label class="f">Which carriage? <span class="muted">(helps others avoid it)</span></label>
+    <div id="carpick" role="radiogroup" aria-label="Which carriage"></div>
+    <div class="hint" id="carnote"></div>
+    <label class="f" for="fbref">AT case reference (optional)</label>
+    <input id="fbref" placeholder="CAS-PB1H5-S9R4F8">
+    <div class="msg" id="fbmsg"></div>
+    <div class="acts">
+      <button class="btn" id="fbcancel">Cancel</button>
+      <button class="btn primary" id="fbsend">Send report</button>
+    </div>
+  </div>
+</div>
+<script>
+// NOTE on innerHTML below: every interpolated value is escaped via esc(), and
+// all data originates from our own /api/trains endpoint. No raw HTML is injected.
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const map = L.map('map', { zoomControl:false, preferCanvas:true })
+  .setView([-36.95, 174.83], 11);
+
+// ---- panel collapse ----
+// Collapsed by default on a phone, where the full panel covered well over half
+// the screen. The choice is remembered, so it isn't re-made on every visit.
+const hud = document.getElementById('hud');
+const isPhone = () => window.matchMedia('(max-width:640px)').matches;
+function setCollapsed(on, remember=true) {
+  hud.classList.toggle('collapsed', on);
+  document.getElementById('hudbar').setAttribute('aria-expanded', String(!on));
+  if (remember) try { localStorage.setItem('hudCollapsed', on ? '1' : '0'); } catch (e) {}
+}
+(() => {
+  let saved = null;
+  try { saved = localStorage.getItem('hudCollapsed'); } catch (e) {}
+  setCollapsed(saved === null ? isPhone() : saved === '1', false);
+})();
+const bar = document.getElementById('hudbar');
+bar.onclick = () => setCollapsed(!hud.classList.contains('collapsed'));
+bar.onkeydown = e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); bar.onclick(); }
+};
+
+// ---- arrivals sheet (phone) ----
+const listEl = document.getElementById('list');
+const sheetBtn = document.getElementById('sheetbtn');
+sheetBtn.onclick = () => {
+  const open = listEl.classList.toggle('open');
+  sheetBtn.textContent = open ? 'Hide arrivals' : 'Arrivals';
+};
+
+L.control.zoom({ position:'topright' }).addTo(map);
+
+// Station clicks need a proximity fallback, not just the dot's own hit area.
+// Train markers are 32px icons drawn ABOVE the station layer, and a train is
+// usually sitting at or near a station — so the marker covers the very dot you
+// are trying to tap. Measured: clicking Newmarket and Papakura hit a train
+// marker's <rect>, while Henderson (no train nearby) worked. Trains SHOULD win
+// a direct hit, since they are the point of the map, so instead of reordering
+// panes this catches clicks on the map BACKGROUND and opens the board for a
+// station within 22px. Leaflet does not fire this when a marker handled the
+// click, so the train popup still takes priority on a direct hit.
+function stationNear(clientX, clientY, maxPx) {
+  const mr = document.getElementById('map').getBoundingClientRect();
+  const p = L.point(clientX - mr.x, clientY - mr.y);
+  let best = null, bestD = maxPx;
+  for (const s of STATION_PTS) {
+    const d = p.distanceTo(map.latLngToContainerPoint(s.ll));
+    if (d < bestD) { bestD = d; best = s.name; }
+  }
+  return best;
+}
+
+map.on('click', (e) => {
+  if (document.querySelector('#stwrap.on')) return;
+  const pt = map.latLngToContainerPoint(e.latlng);
+  const mr = document.getElementById('map').getBoundingClientRect();
+  const st = stationNear(mr.x + pt.x, mr.y + pt.y, 22);
+  if (st) openBoard(st);
+});
+
+// Capture-phase listener on the map container. A Leaflet marker consumes a
+// click entirely — verified: clicking a train's <rect> fired neither the
+// marker's own handler nor map's 'click', so a station underneath it was
+// unreachable. Capture phase sees the event before Leaflet stops it.
+//
+// An earlier version here also bailed out when a train was within 12px,
+// meaning to protect direct train clicks. That was exactly backwards: a train
+// stopped AT a station is 0-1px from the dot (measured: the two nearest trains
+// to Henderson were both 1px away), so the guard disabled station clicks
+// precisely at the stations people tap. Standing at a platform is the normal
+// state of a train, not an edge case.
+//
+// So the station dot wins inside 10px. That costs little: a train sitting in a
+// platform is also listed in the Arrivals panel and in the board that opens,
+// and a moving train between stations is never within 10px of one.
+document.getElementById('map').addEventListener('click', (ev) => {
+  if (document.querySelector('#stwrap.on')) return;
+  if (ev.target.closest('.leaflet-control, #hud, #list, #stwrap, #fbwrap, #jpwrap')) return;
+  // 20px is a finger-sized catch radius, which is WIDER than the 12px gap
+  // between the tightest city stations. That is fine and deliberate: this is
+  // nearest-wins, not first-hit, so overlapping catch areas resolve to the
+  // closest dot rather than to whichever was drawn last. A per-marker hit
+  // circle cannot do that — it fires on whatever is on top.
+  const st = stationNear(ev.clientX, ev.clientY, 20);
+  if (!st) return;
+  ev.stopPropagation();
+  openBoard(st);
+}, true);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'&copy; OpenStreetMap contributors &middot; live data &copy; Auckland Transport',
+  maxZoom:19
+}).addTo(map);
+
+// Station positions for the click fallback below.
+const STATION_PTS = [];
+const trackLayer = L.layerGroup().addTo(map);
+const stopLayer  = L.layerGroup().addTo(map);
+const trainLayer = L.layerGroup().addTo(map);
+const markers = new Map();
+const lines   = new Map();   // route code -> {name, colour, on, count}
+
+// ---- static geometry: rail lines + stations ----
+fetch('/static/rail_geo.json').then(r => r.json()).then(geo => {
+  for (const [key, l] of Object.entries(geo.lines)) {
+    const colour = geo.routes[l.route]?.colour || '#888';
+    L.polyline(l.path, { color: colour, weight: 3.5, opacity: .85,
+                         interactive:false }).addTo(trackLayer);
+  }
+  // Stations are deduped to one dot per station before drawing. geo.stops is
+  // per-PLATFORM ("Newmarket 1".."Newmarket 4"), so drawing it raw stacks four
+  // dots and four labels on one spot — unreadable, and four identical boards
+  // behind the clicks. Keep the first platform's position per base name.
+  STATION_PTS.length = 0;
+  const stationSeen = new Map();
+  for (const [code, s] of Object.entries(geo.stops)) {
+    const base = String(s.name || '').replace(/\s+\d+$/, '');
+    if (!base || stationSeen.has(base)) continue;
+    stationSeen.set(base, true);
+    // One small visible dot per station. Clicks are NOT handled by a per-dot
+    // hit circle: at the default zoom 11 the tightest station gaps are 12-15px
+    // (Waitemata/Parnell/The Strand/Te Waihorotiu all 12px), so a 14px-radius
+    // hit circle is 28px wide and overlaps its neighbours — whichever rendered
+    // last stole the tap, which is what "stations are hard to click" was.
+    // A single nearest-station test on the map container handles it instead,
+    // so the closest dot always wins however tightly they are packed.
+    const m = L.circleMarker([s.lat, s.lon], { radius:3.6, color:'#fff',
+      weight:1.4, fillColor:'#1a2029', fillOpacity:1, interactive:false });
+    // Permanent label, not a hover tooltip: a map of unnamed dots is useless
+    // on a phone, where there is no hover at all. Leaflet keeps these in their
+    // own pane so they never swallow a click meant for a train.
+    // Placed ABOVE the dot, not beside it. The OSM basemap prints its own
+    // suburb name immediately to the right of most stations, so a right-hand
+    // label rendered as "Otahuhu Otahuhu" / "Penrose Penrose" — the station
+    // name read as a stutter rather than a label. Above the dot is clear in
+    // nearly every case because the basemap puts its text level with, not over,
+    // the place it names.
+    m.bindTooltip(esc(base), {permanent:true, direction:'top',
+                              className:'stname', offset:[0,-4]});
+    STATION_PTS.push({ name: base, ll: L.latLng(s.lat, s.lon) });
+    m.addTo(stopLayer);
+  }
+  for (const [code, r] of Object.entries(geo.routes)) {
+    const cur = lines.get(code);
+    lines.set(code, {name:r.name, colour:r.colour,
+                     on: cur ? cur.on : true, count: cur ? cur.count : 0});
+  }
+  renderLegend();
+}).catch(e => console.warn('geometry load failed', e));
+
+// In service: a filled arrow pointing the way it is going.
+// Not in service: a small hollow square — clearly a unit, clearly not a service,
+// and it does not imply a direction of travel the way an arrow does. A moving
+// out-of-service unit (empty stock, depot shunt) gets a faint heading tick.
+// A reported unit gets a warning triangle pinned to its top-right corner.
+//
+// The triangle sits OUTSIDE the rotating <g>: the arrow spins to show heading,
+// but a warning sign rotated 200 degrees reads as a decoration rather than a
+// warning. The marker box is widened to 30x30 (anchor still on the train's
+// real position) so the badge has somewhere to live without being clipped —
+// SVG has no overflow outside the viewBox.
+//
+// Severity drives colour, matching the .flag palette already used in popups
+// and the "most reported" panel: amber for minor, orange, red for severe.
+const WARN_FILL = {1:'#d9c57a', 2:'#f0a35e', 3:'#ff6b6b'};
+
+function warnBadge(flag) {
+  // Only faults warn. A unit with nothing but praise gets no triangle: see
+  // hasFault(). Severity colour comes from worst_neg, so one cheerful 1-star
+  // compliment can't tint a severe complaint down to yellow.
+  if (!flag || !flag.n_neg) return '';
+  const fill = WARN_FILL[flag.worst_neg || flag.worst] || WARN_FILL[2];
+  // Drawn in the 30-wide box's top-right. Dark outline keeps it legible on
+  // light map tiles and over the train's own colour.
+  return `<g transform="translate(16 0)">
+    <path d="M7 0.8 L13.8 12.6 L0.2 12.6 Z" fill="${fill}"
+          stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M7 4.2 L7 8.4" stroke="#0d1117" stroke-width="1.9"
+          stroke-linecap="round"/>
+    <circle cx="7" cy="10.6" r="1.05" fill="#0d1117"/>
+  </g>`;
+}
+
+// Skull marker for a train with a LIVE people report. Drawn as a separate
+// overlay from the fault badge because the two mean different things: the
+// triangle says the vehicle has a problem, the skull says this service has
+// one right now, and it disappears when the train reaches its terminus.
+// Not rotated with the bearing — a sideways skull is unreadable.
+function skullBadge(flag, shifted) {
+  if (!flag || !(flag.n_people > 0)) return '';
+  // The fault triangle already owns the top-right corner. When a train has
+  // both, drop the skull to the bottom-right instead of stacking them — two
+  // overlapping badges read as one unidentifiable blob and neither warning
+  // lands.
+  // Scaled up 1.45x: at the original size the skull was legible only if you
+  // already knew it was there, which defeats a warning badge.
+  const pos = (shifted ? 'translate(15.5 15.5)' : 'translate(15.5 0.5)')
+            + ' scale(1.45)';
+  return `<g transform="${pos}" class="skullg">
+      <circle cx="5" cy="5" r="5.6" fill="#0d1117" opacity=".92"/>
+      <path d="M5 1.2c-2.3 0-3.9 1.5-3.9 3.5 0 1.1.5 1.8 1.1 2.3v1.1
+               c0 .4.3.6.7.6h4.2c.4 0 .7-.2.7-.6V7c.6-.5 1.1-1.2 1.1-2.3
+               0-2-1.6-3.5-3.9-3.5z" fill="#e8edf4"/>
+      <circle cx="3.5" cy="4.7" r="1.05" fill="#0d1117"/>
+      <circle cx="6.5" cy="4.7" r="1.05" fill="#0d1117"/>
+      <path d="M4.3 7.2v1.3M5.7 7.2v1.3" stroke="#0d1117" stroke-width=".55"
+            stroke-linecap="round"/>
+    </g>`;
+}
+
+function icon(colour, bearing, oos, moving, flag) {
+  const b = (bearing == null ? 0 : bearing);
+  const badge = warnBadge(flag) + skullBadge(flag, hasFault(flag));
+  const cls = 'train' + (hasFault(flag) ? ' flagged' : '')
+            + (flag && flag.n_people > 0 ? ' rowdy' : '');
+  if (oos) {
+    const tick = (moving && bearing != null)
+      ? `<g transform="rotate(${b.toFixed(0)} 12 12)">
+           <path d="M12 9.5 L12 3.5" stroke="${colour}" stroke-width="1.6"
+                 stroke-linecap="round" opacity=".9"/></g>`
+      : '';
+    return L.divIcon({ className:cls, iconSize:[32,32], iconAnchor:[12,12],
+      html:`<svg width="32" height="32" viewBox="0 0 32 32">${tick}
+        <rect x="7.5" y="7.5" width="9" height="9" rx="1.5"
+              fill="#161c24" stroke="${colour}" stroke-width="2"/>
+        ${badge}</svg>` });
+  }
+  return L.divIcon({ className:cls, iconSize:[32,32], iconAnchor:[12,12],
+    html:`<svg width="32" height="32" viewBox="0 0 32 32">
+      <g transform="rotate(${b.toFixed(0)} 12 12)">
+        <path d="M12 1.5 L20 21 L12 16.5 L4 21 Z" fill="${colour}"
+              stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
+      </g>
+      ${badge}</svg>` });
+}
+
+function renderLegend() {
+  const el = document.getElementById('legend');
+  // Services first, alphabetically; the not-in-service pseudo-line always last.
+  const rows = [...lines.entries()].sort((a,b) =>
+    (a[0]==='OOS') - (b[0]==='OOS') || a[1].name.localeCompare(b[1].name));
+  el.innerHTML = rows.map(([code,v]) =>
+    `<label><input type="checkbox" data-code="${esc(code)}" ${v.on?'checked':''}>
+      <span class="swatch" style="background:${esc(v.colour)}"></span>
+      <span>${esc(v.name)}</span><span class="n">${v.count}</span></label>`).join('');
+  el.querySelectorAll('input').forEach(i => i.onchange = () => {
+    lines.get(i.dataset.code).on = i.checked; applyFilter();
+  });
+}
+
+function applyFilter() {
+  for (const m of markers.values()) {
+    const on = lines.get(m._route)?.on !== false;
+    if (on && !trainLayer.hasLayer(m)) trainLayer.addLayer(m);
+    if (!on && trainLayer.hasLayer(m)) trainLayer.removeLayer(m);
+  }
+}
+
+const mmss = s => (s<0 ? 'due' : s<60 ? s+'s' : Math.round(s/60)+'m');
+
+// ---------------------------------------------------------------- feedback
+// Rider reports are keyed on the SET NUMBER, not the car label: an AM-class
+// set has AMP/AMT/AMA cars sharing one number, and the feed only reports the
+// AMP car. So "AMT701" on a seat-back and "AMP 701" on the map are one train.
+const setNo = u => { const m = String(u ?? '').match(/(?<!\d)(\d{2,4})(?!\d)/); return m ? m[1] : null; };
+let FB = {};            // set number -> {n, worst, last, top_category_label}
+let LAST_TRAINS = [];   // most recent /api/trains payload, so the arrivals list
+                        // can be re-rendered when the feedback summary lands
+let META = null;        // categories/severities, fetched once from the server
+let fbTarget = null;    // the unit the open form is about
+
+async function loadFeedback() {
+  try {
+    const r = await fetch('/api/feedback/summary', {cache:'no-store'});
+    FB = (await r.json()).units || {};
+    
+    refreshFlags();
+  } catch (e) { console.warn('feedback summary failed', e); }
+}
+
+// The trains feed and the feedback summary load independently, and the trains
+// feed usually wins. Without this, markers are built with an empty FB and stay
+// unflagged until the next 10s tick — so the first thing a visitor sees is a
+// map with no warnings on it, which is precisely the information they came for.
+// Re-skin the existing markers as soon as the summary lands.
+// Popup content is rebuilt on every poll AND whenever the feedback summary
+// lands. It was previously inline in tick(), which meant a popup opened in the
+// first 10 seconds was built against an empty FB and showed no badges at all —
+// the worst-offending unit's popup said nothing about it.
+function popupFor(t) {
+  const oos = t.in_service === false;
+  const late = t.delay_s != null && t.delay_s > 120;
+  const OCC = ['Empty','Many seats','Few seats','Standing only','Crush load','Full','Not accepting'];
+  const occ = (t.occupancy != null && OCC[t.occupancy]) ? OCC[t.occupancy] : null;
+  const dmin = t.delay_s == null ? null : Math.round(t.delay_s / 60);
+  // An out-of-service unit has no trip, so no destination, ETA or platform to
+  // show — claiming any would be a lie. Say where it is and whether it moves.
+  const where = t.near
+    ? (t.near_m != null && t.near_m > 400
+        ? `${esc(t.near)} area` : `at ${esc(t.near)}`)
+    : 'location unknown';
+  return oos
+    ? `<div class="pop"><b>${esc(t.unit || 'Train unit')}</b>
+       <span class="oostag">not in service</span> ${flagHtml(t.unit)} ${peeHtml(t.unit)}<br>
+       <small>${where}${t.near_m != null ? ` · ${t.near_m} m` : ''}</small><br>
+       <small>${t.moving
+          ? `moving · ${t.speed_kmh ?? '?'} km/h — empty stock or depot move`
+          : 'stationary — stabled'}${occ ? ' · '+esc(occ) : ''}
+       ${t.fix_age_s != null ? ' · fix '+t.fix_age_s+'s ago' : ''}</small>
+       ${reportBlock(t.unit)}</div>`
+    : `<div class="pop"><b>${esc(t.dest || t.line)}</b>
+    ${t.unit ? ` <span class="unit">${esc(t.unit)}</span>` : ''} ${flagHtml(t.unit)} ${peeHtml(t.unit)}<br>
+    <small>${esc(t.line)}</small>${
+      // A 6-car is two sets under one trip. The rider may well board the half
+      // whose number is NOT the one AT attached the trip to, so name both.
+      t.consist === 6 && t.partner_set
+        ? ` <small class="dim">&middot; 6 cars, sets ${esc(t.unit && setNo(t.unit) || '?')} + ${esc(t.partner_set)}${
+            t.consist_source === 'at' ? '' : ' (inferred)'}</small>`
+        : ''}<br>
+    ${(t.origin || t.terminus)
+        ? `<small class="dim">${esc(t.origin ?? '?')} &rarr; ${esc(t.terminus ?? '?')}</small><br>`
+        : ''}
+    <small class="dim">next stop</small> <b>${esc(t.to ?? '—')}</b>${
+      t.from ? ` <small class="dim">(left ${esc(t.from)})</small>` : ''}<br>
+    <small>arrives ${mmss(t.eta_s)}${t.platform ? ' · platform '+esc(t.platform) : ''}
+    ${dmin != null ? ' · '+(dmin>0 ? dmin+' min late' : dmin<0 ? (-dmin)+' min early' : 'on time') : ''}<br>
+    ${t.speed_kmh ?? '?'} km/h${occ ? ' · '+esc(occ) : ''}
+    ${t.fix_age_s != null ? ' · fix '+t.fix_age_s+'s ago' : ''}</small>
+    ${reportBlock(t.unit)}</div>`;
+}
+
+function refreshFlags() {
+  renderList();
+  for (const m of markers.values()) {
+    const t = m._t;
+    if (!t) continue;
+    m.setIcon(icon(t.colour, t.bearing, t.in_service === false, t.moving,
+                   flagFor(t.unit)));
+    if (m.getPopup()) m.getPopup().setContent(popupFor(t));
+  }
+  // An open reports log survives this rebuild because popupFor() renders it
+  // inline from LOGDATA — see reportBlock(). Nothing to restore afterwards,
+  // which matters because Leaflet's setContent() does not swap the DOM
+  // synchronously, so any "fix it up after" approach races and loses.
+}
+
+function flagFor(unit) {
+  const k = setNo(unit); if (!k) return null;
+  return FB[k] || null;
+}
+// True when a set has at least one report that is an actual complaint.
+// `n_neg` excludes category 'praise'; older payloads without the field fall
+// back to the total so behaviour degrades to the previous (noisier) state
+// rather than silently dropping every warning.
+function hasFault(f) {
+  if (!f) return false;
+  return (f.n_neg != null ? f.n_neg : f.n) > 0;
+}
+// Praise-only units: show something positive instead of a fault badge.
+function praiseHtml(unit) {
+  const f = flagFor(unit);
+  if (!f || !f.n_praise) return '';
+  const label = f.n_praise === 1 ? 'praised' : f.n_praise + ' compliments';
+  return `<span class="good">${esc(label)}</span>`;
+}
+
+// "Pee train" status is deliberately NOT "has any report". It is specifically
+// a SMELL problem: the one AMT321 report in the log reads "not piss its bike
+// train!" and is filed as `other`, so badging it on report-count alone would
+// contradict the rider who filed it. Category is the honest discriminator.
+//
+// Severity 3 (or repeat smell reports) earns the full title; a single moderate
+// smell report is "a bit off" rather than a condemnation, because one bad
+// carriage on one day is not a unit's permanent character.
+function peeStatus(unit) {
+  const f = flagFor(unit);
+  // Key on top_FAULT, not top_category: a compliment must not be able to
+  // outvote a smell history and quietly clear a unit's status. Counts and
+  // severities are the negative-only ones for the same reason.
+  const cat = f && (f.top_fault || f.top_category);
+  if (!f || cat !== 'smell') return null;
+  const n = f.n_neg != null ? f.n_neg : f.n;
+  const worst = f.worst_neg || f.worst;
+  if (worst >= 3 || n >= 2) return {cls:'p3', label:'PEE TRAIN'};
+  if (worst === 2)          return {cls:'p2', label:'suspected pee train'};
+  return {cls:'p1', label:'faint pee smell'};
+}
+
+function peeHtml(unit) {
+  const p = peeStatus(unit);
+  return p ? `<span class="pee ${p.cls}">${esc(p.label)}</span>` : '';
+}
+
+// Arrivals rows are narrow; a full "suspected pee train" label would push the
+// ETA off the edge on a 390px phone. The glyph carries the warning, the popup
+// carries the words. title= keeps it accessible rather than decorative.
+function warnMini(unit) {
+  const p = peeStatus(unit), f = flagFor(unit);
+  // A live people report shows a skull even when the vehicle itself is clean:
+  // it is information about this service now, not about the unit's history.
+  const skull = (f && f.n_people > 0)
+    ? `<span class="wmini rowdy" title="Reported on this service"
+             aria-label="Behaviour reported on this service">\u2620</span>` : '';
+  if (!f || !hasFault(f)) return skull;   // praise earns no warning glyph
+  const n = f.n_neg != null ? f.n_neg : f.n;
+  const cls = p ? p.cls : 's' + (f.worst_neg || f.worst);
+  const tip = p ? p.label : (n === 1 ? '1 report' : n + ' reports');
+  return skull + `<span class="wmini ${cls}" title="${esc(tip)}" aria-label="${esc(tip)}">&#9888;</span>`;
+}
+
+function flagHtml(unit) {
+  const f = flagFor(unit);
+  if (!f) return '';
+  // A praise-only unit is not "1 report" in warning orange — that reads as a
+  // fault. Show the compliment instead.
+  if (!hasFault(f)) return praiseHtml(unit);
+  const n = f.n_neg != null ? f.n_neg : f.n;
+  const sev = f.worst_neg || f.worst;
+  const label = n === 1 ? '1 report' : n + ' reports';
+  return `<span class="flag s${sev}">${esc(label)}</span>` +
+         (f.n_praise ? ' ' + praiseHtml(unit) : '');
+}
+
+// The report button inside a popup. Leaflet rebuilds popup content on every
+// poll, so this uses a delegated click handler (below) rather than a bound one.
+function reportBlock(unit) {
+  if (!setNo(unit)) return '';
+  const sn = setNo(unit);
+  const f = flagFor(unit) || {};
+  // worst_car comes ONLY from 3-car reports — on a 6-car we cannot tell which
+  // coupled set the rider was in, so those reports count as faults but must
+  // not claim a carriage for this set. Say that rather than hiding it.
+  const wc = f.worst_car_label;
+  const six = f.n_sixcar | 0;
+  const cp = COUPLES[String(sn)];
+  const np = f && (f.n_people | 0);
+  return `
+    ${np ? `<div class="rowdy-line">\u2620 ${np} behaviour report${np>1?'s':''}
+       on this service <span class="dim2">\u2014 clears at the last stop</span></div>` : ''}
+    ${cp && cp.partner ? `<div class="couple">${(cp.consist|0) || 6}-car service &middot; ${
+       cp.position === 'front' ? 'front half (cars 1&ndash;3)'
+       : cp.position === 'rear' ? 'rear half (cars 4&ndash;6)' : 'coupled'}
+       &middot; with set ${esc(cp.partner)}
+       ${cp.source === 'at'
+         ? (cp.position
+             ? `<span class="inf" title="Carriage count and both set numbers published by Auckland Transport. Which half is at the front is worked out from the two sets&rsquo; positions.">i</span>`
+             : `<span class="inf" title="Carriage count and both set numbers published by Auckland Transport.">i</span>`)
+         : `<span class="inf" title="Inferred from train positions, not published by AT">?</span>`}</div>` : ''}
+    ${wc ? `<div class="avoid">Most reports: <b>${esc(wc)}</b>${
+       f.worst_car_n > 1 ? ` (${f.worst_car_n|0})` : ''}</div>` : ''}
+    ${six ? `<div class="avoid dim">${six} report${six>1?'s':''} from a 6-car
+       service &mdash; carriage can't be tied to this set</div>` : ''}
+    <div class="popacts">
+      <button class="btn fbopen" data-unit="${esc(unit)}">Report this train</button>
+      <button class="btn ghost loglink" data-set="${esc(sn)}">Reports (${(f.n|0)})</button>
+    </div>
+    <div class="log" id="log-${esc(sn)}">${
+      LOGS[sn] ? logHtml(LOGDATA[sn]) : ''}</div>`;
+}
+
+// Delegated: survives popup content being replaced each tick.
+document.addEventListener('click', e => {
+  const t = e.target;
+  if (!t.closest) return;
+  const b = t.closest('.fbopen');
+  if (b) { openForm(b.dataset.unit); return; }
+  const l = t.closest('.loglink');
+  if (l) { toggleLog(l.dataset.set); return; }
+  const v = t.closest('.vote');
+  if (v) { sendVote(v); return; }
+});
+
+// ---------------------------------------------------------------- reports log
+//
+// Opening the log is a deliberate click, not automatic: a popup that expands to
+// ten reports the moment you tap a train buries the live arrival info people
+// actually came for, and on a phone it would fill the screen.
+const LOGS = {};      // set_no -> open?
+const LOGDATA = {};   // set_no -> last fetched reports, so a popup rebuild
+                      // can re-render the log without another round trip
+
+// A voter token, generated here and kept in this browser. It is random and
+// linked to nothing — its only job is stopping one person voting twice on the
+// same report. Not sent anywhere except with a vote.
+function voterToken() {
+  let t = localStorage.getItem('voterToken');
+  if (!t) {
+    t = (crypto.randomUUID ? crypto.randomUUID()
+                           : String(Math.random()).slice(2) + Date.now());
+    localStorage.setItem('voterToken', t);
+  }
+  return t;
+}
+
+async function toggleLog(sn) {
+  const el = document.getElementById('log-' + sn);
+  if (!el) return;
+  if (LOGS[sn]) { LOGS[sn] = false; el.innerHTML = ''; return; }
+  LOGS[sn] = true;
+  el.innerHTML = '<div class="muted">loading reports…</div>';
+  try {
+    const d = await (await fetch('/api/feedback?unit=' + encodeURIComponent(sn)
+                                 + '&limit=20')).json();
+    LOGDATA[sn] = d.reports || [];
+    renderLog(el, LOGDATA[sn]);
+  } catch (err) {
+    el.innerHTML = '<div class="muted">could not load reports</div>';
+  }
+}
+
+// Re-fetch the reports for every open log. Awaited by sendVote so the tallies
+// and the resolved badge come from the server, not from optimistic guesswork.
+async function reloadLogs() {
+  await Promise.all(Object.keys(LOGS).filter(sn => LOGS[sn]).map(async sn => {
+    try {
+      const d = await (await fetch('/api/feedback?unit=' + encodeURIComponent(sn)
+                                   + '&limit=20')).json();
+      LOGDATA[sn] = d.reports || [];
+    } catch (err) { /* keep the previous data rather than blanking the log */ }
+  }));
+}
+
+function renderLog(el, reports) {
+  el.innerHTML = logHtml(reports);
+}
+
+// Pure string builder. Popup content is rebuilt by Leaflet on every poll, and
+// its DOM swap does NOT happen synchronously inside setContent() — so any
+// "put the log back afterwards" approach races and loses. Instead the log is
+// rendered as part of the popup markup itself from cached data, which makes it
+// immune to when Leaflet actually commits the change.
+function logHtml(reports) {
+  if (!reports || !reports.length) return '<div class="muted">No reports yet.</div>';
+  const mine = JSON.parse(localStorage.getItem('myVotes') || '{}');
+  return reports.map(r => {
+    const when = (r.occurred_at || r.created_at || '').slice(0, 16).replace('T', ' ');
+    const my = mine[r.id];
+    // A resolved report is shown, not hidden: "it smelled in March and three
+    // people since say it is fine" is more useful than silence, and hiding it
+    // would make the vote feel like it deleted history.
+    const badge = r.resolved ? '<span class="good">resolved</span>'
+                : r.stale    ? '<span class="stale">unconfirmed, old</span>' : '';
+    return `<div class="lr">
+      <div class="lh">
+        <span class="flag s${r.severity|0}">${esc(r.category_label || r.category)}</span>
+        ${r.car_label ? `<span class="tag">${esc(r.car_label)}</span>`
+          : (r.carriage_label ? `<span class="tag">${esc(r.carriage_label)}</span>` : '')}
+        ${r.attribution === 'shared'
+          ? '<span class="tag warnish" title="Two sets were coupled; we can\u2019t tell which half">6-car</span>'
+          : ''}
+        ${badge}
+        ${r.about_people
+          ? `<span class="tag people" title="Behaviour on a service, not a fault with the train">\u2620 ${
+               esc(r.behaviour_label || 'on board')}</span>`
+          : ''}
+        <span class="when">${esc(when)}</span>
+      </div>
+      ${r.note ? `<div class="ln">${esc(r.note)}</div>` : ''}
+      <div class="lv">
+        <span class="muted">${r.about_people ? 'Still happening?' : 'Still smell?'}</span>
+        <button class="vote ${my === 1 ? 'on' : ''}" data-id="${r.id|0}" data-v="1"
+                aria-label="Still a problem">&#128078; yes (${r.confirms|0})</button>
+        <button class="vote ${my === -1 ? 'on' : ''}" data-id="${r.id|0}" data-v="-1"
+                aria-label="Fine now">&#128077; no (${r.clears|0})</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function sendVote(btn) {
+  const id = btn.dataset.id, v = parseInt(btn.dataset.v, 10);
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/feedback/${id}/vote`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({vote: v, token: voterToken()})
+    });
+    const d = await res.json();
+    if (!res.ok) { toast(d.error || 'vote failed'); btn.disabled = false; return; }
+    const mine = JSON.parse(localStorage.getItem('myVotes') || '{}');
+    mine[id] = v;
+    localStorage.setItem('myVotes', JSON.stringify(mine));
+    // Update this row's counts FIRST, while the element still exists, so the
+    // user sees their vote register immediately.
+    const row = btn.closest('.lr');
+    if (row) row.querySelectorAll('.vote').forEach(b => {
+      const bv = parseInt(b.dataset.v, 10);
+      b.classList.toggle('on', bv === v);
+      b.disabled = false;
+      const n = bv === 1 ? d.confirms : d.clears;
+      b.innerHTML = (bv === 1 ? '&#128078; yes (' : '&#128077; no (') + (n | 0) + ')';
+    });
+    if (d.resolved) toast('Marked resolved — thanks');
+    else toast('Thanks — recorded');
+    // Refresh the server's view of these reports, THEN the summary. The
+    // summary refresh rebuilds popup content, and reportBlock() re-renders the
+    // log inline from the freshly-cached LOGDATA — so the list stays on screen
+    // with the authoritative tallies and the resolved badge appears.
+    await reloadLogs();
+    await loadFeedback();
+  } catch (err) { toast('vote failed'); btn.disabled = false; }
+}
+
+// The "Most reported units" panel was removed from the HUD: it is a leaderboard
+// of trains a rider cannot choose between, taking permanent space on the main
+// screen for information that is only useful once you already have a set in
+// front of you. Per-train reports still live on the train's own card.
+
+// Jump to a set from anywhere that names one — the worst list, a board row, a
+// planner row. If the set is on the map right now we fly to it and open its
+// card; otherwise we open the set's own card directly, because a rider tapping
+// a set number wants that train's history whether or not it is currently
+// running. Returns false when the set is not a real number so callers can
+// leave a row inert rather than offering a dead tap.
+function goToSet(sn) {
+  sn = String(sn || '').trim();
+  if (!sn || sn === '0') return false;
+  for (const [id,m] of markers)
+    if (setNo(m._t && m._t.unit) === sn) {
+      // Close any overlay first: flying the map underneath an open panel looks
+      // like nothing happened.
+      ['fbwrap','jpwrap','stwrap'].forEach(w => {
+        const e = document.getElementById(w); if (e) e.classList.remove('on');
+      });
+      map.setView(m.getLatLng(), 14); m.openPopup(); return true;
+    }
+  openForm(sn);
+  return true;
+}
+
+async function ensureMeta() {
+  if (META) return META;
+  META = await (await fetch('/api/feedback/meta')).json();
+  const cat = document.getElementById('fbcat');
+  cat.innerHTML = Object.entries(META.categories)
+    .map(([k,v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('');
+  const sev = document.getElementById('fbsev');
+  sev.innerHTML = Object.entries(META.severities)
+    .map(([k,v]) => `<option value="${esc(k)}">${esc(k)} — ${esc(v)}</option>`).join('');
+  sev.value = '2';
+  const beh = document.getElementById('fbbeh');
+  beh.innerHTML = '<option value="">Choose\u2026</option>' +
+    Object.entries(META.behaviours || {})
+      .map(([k,v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('');
+  return META;
+}
+
+async function openForm(unit) {
+  await ensureMeta();
+  fbTarget = unit;
+  document.getElementById('fbunit').textContent =
+    'Unit ' + (setNo(unit) ? ('AMP ' + setNo(unit)) : String(unit));
+  document.getElementById('fbmsg').textContent = '';
+  document.getElementById('fbmsg').className = 'msg';
+  document.getElementById('fbnote').value = '';
+  document.getElementById('fbbeh').value = '';
+  document.getElementById('fbref').value = '';
+  document.getElementById('fbwhen').value = new Date().toISOString().slice(0,10);
+  fbCar = null;
+  // Prefill the length when we have inferred this train is a coupled 6-car.
+  // The rider can still override — the inference can be wrong, and they were
+  // actually there.
+  const cp = COUPLES[String(setNo(unit))];
+  // Use AT's published carriage count where we have it. A single-unit trip is
+  // a genuine 3-car answer, not an absence of information.
+  setLen(cp ? ((cp.consist|0) || 6) : null);
+  const ch = document.getElementById('fbconsist');
+  ch.textContent = !cp || !cp.partner ? ''
+    : cp.source === 'at'
+      ? `Auckland Transport lists this as a ${(cp.consist|0) || 6}-car service `
+        + `(sets ${setNo(unit)} + ${cp.partner}). Correct it if you were on `
+        + 'something else.'
+      : `Looks like a 6-car service (sets ${setNo(unit)} + ${cp.partner}). `
+        + 'We work this out from train positions, so correct it if that\u2019s wrong.';
+  catChanged();
+  document.getElementById('fbwrap').classList.add('on');
+  document.getElementById('fbnote').focus();
+}
+
+function closeForm() {
+  document.getElementById('fbwrap').classList.remove('on');
+  fbTarget = null;
+}
+
+// Carriage picker. Two pieces of state: how long the train was, and which car.
+// Kept as variables rather than read from the DOM at submit time so "nothing
+// picked" stays explicitly null instead of becoming a silent default.
+let fbCar = null;      // 1-based position from the front
+let fbLen = null;      // 3, 6, or null = rider didn't know
+
+function setLen(n) {
+  fbLen = n || null;
+  document.querySelectorAll('#lenpick .len').forEach(b => {
+    const on = (b.dataset.n || '') === String(n || '');
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  // A car choice that no longer exists on the new length must be dropped, not
+  // silently kept — picking "car 5" then switching to 3 cars would otherwise
+  // submit an impossible position (the server rejects it, but the user would
+  // never understand why).
+  if (fbCar && fbLen && fbCar > fbLen) fbCar = null;
+  drawCars();
+}
+
+function drawCars() {
+  const el = document.getElementById('carpick');
+  const note = document.getElementById('carnote');
+  // Unknown length: offer the 3-car layout (the common case) but we store no
+  // consist, so the report is marked "car position unverified" server-side.
+  const n = fbLen || 3;
+  let html = '';
+  for (let i = 1; i <= n; i++) {
+    const glyph = i === 1 ? '&#9650;' : i === n ? '&#9660;' : '&#9632;';
+    html += `<button type="button" class="car${fbCar === i ? ' on' : ''}"
+               data-p="${i}" role="radio" aria-checked="${fbCar === i}"
+               aria-label="Car ${i} of ${n}">
+               <span class="cx">${glyph}</span><span class="cl">${i}</span>
+             </button>`;
+  }
+  html += `<button type="button" class="car${fbCar === 0 ? ' on' : ''}"
+             data-p="0" role="radio" aria-checked="${fbCar === 0}"
+             aria-label="Not sure which carriage">
+             <span class="cx">?</span><span class="cl">&ndash;</span>
+           </button>`;
+  // innerHTML is safe here: every interpolated value is a loop integer or a
+  // file literal — no user or server data reaches this markup.
+  el.innerHTML = html;
+  el.className = n > 3 ? 'six' : '';
+  // The 6-car wording depends on whether we actually detected the couple for
+  // THIS train. If we did, the report gets routed to the correct half, so
+  // promising the opposite would be a lie that discourages people from
+  // answering. If we didn't, say so plainly.
+  const paired = fbTarget && COUPLES[String(setNo(fbTarget))];
+  note.textContent = fbLen === 6
+    ? (paired
+        ? 'Counting from the front of the whole 6-car train. We know which '
+          + 'two sets are coupled, so your carriage is matched to the right one.'
+        : 'Counting from the front of the whole 6-car train. We can\u2019t tell '
+          + 'which of the two coupled sets that is right now, so this helps '
+          + 'other riders but won\u2019t be pinned to one set number.')
+    : (fbLen === 3 ? 'Counting from the front of the train.'
+                   : 'Tell us the length above if you remember \u2014 it makes '
+                     + 'the carriage much more useful.');
+  el.querySelectorAll('.car').forEach(b => {
+    b.onclick = () => {
+      const p = parseInt(b.dataset.p, 10);
+      fbCar = (fbCar === p) ? null : p;   // click again to deselect
+      drawCars();
+    };
+  });
+}
+
+document.querySelectorAll('#lenpick .len').forEach(b => {
+  b.onclick = () => setLen(b.dataset.n ? parseInt(b.dataset.n, 10) : null);
+});
+
+document.getElementById('fbcancel').onclick = closeForm;
+document.getElementById('fbwrap').onclick = e => {
+  if (e.target.id === 'fbwrap') closeForm();        // click the backdrop to dismiss
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('fbwrap').classList.contains('on'))
+    closeForm();
+});
+// People categories (ruffians) need a different conversation than a broken
+// aircon: the note is public and permanent, and a free-text box invites
+// descriptions of individuals. Show the warning the moment the category is
+// chosen rather than after they've typed it.
+function catChanged() {
+  const cat = document.getElementById('fbcat').value;
+  const people = ((META && META.people_categories) || []).includes(cat);
+  document.getElementById('fbpeoplewrap').hidden = !people;
+  // The free-text note is not merely hidden for people reports — it is cleared
+  // too, so switching category after typing can't smuggle the text through.
+  // (The server drops it regardless; this just keeps the UI honest.)
+  const noteRow = document.getElementById('fbnoterow');
+  if (noteRow) noteRow.hidden = people;
+  if (people) document.getElementById('fbnote').value = '';
+}
+document.getElementById('fbcat').addEventListener('change', catChanged);
+
+document.getElementById('fbnote').addEventListener('input', e => {
+  const max = (META && META.max_note) || 500;
+  document.getElementById('fbcount').textContent =
+    e.target.value.length ? `${e.target.value.length}/${max}` : '';
+});
+
+document.getElementById('fbsend').onclick = async () => {
+  const btn = document.getElementById('fbsend');
+  const msg = document.getElementById('fbmsg');
+  // A people report is meaningless without the behaviour, and the server
+  // rejects it anyway — catch it here so the rider gets a useful message
+  // rather than an API error.
+  const catv = document.getElementById('fbcat').value;
+  if (((META && META.people_categories) || []).includes(catv)
+      && !document.getElementById('fbbeh').value) {
+    msg.className = 'msg bad';
+    msg.textContent = 'Pick what they were doing.';
+    return;
+  }
+  btn.disabled = true; msg.className = 'msg'; msg.textContent = 'sending…';
+  try {
+    const r = await fetch('/api/feedback', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        unit: fbTarget,
+        category: document.getElementById('fbcat').value,
+        severity: Number(document.getElementById('fbsev').value),
+        note: document.getElementById('fbnote').value,
+        behaviour: document.getElementById('fbbeh').value || null,
+        // fbCar 0 is the "not sure" button. The server validates positions
+        // 1..6, so send it as the legacy `unsure` marker rather than car 0.
+        car_pos: (fbCar && fbCar > 0) ? fbCar : null,
+        carriage: fbCar === 0 ? 'unsure' : null,
+        consist: fbLen,
+        case_ref: document.getElementById('fbref').value,
+        occurred_at: document.getElementById('fbwhen').value || null,
+      })});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    msg.className = 'msg good'; msg.textContent = 'Thanks — report saved.';
+    await loadFeedback();
+    setTimeout(closeForm, 900);
+  } catch (e) {
+    msg.className = 'msg bad'; msg.textContent = e.message;
+  } finally { btn.disabled = false; }
+};
+
+async function tick() {
+  let d;
+  try {
+    d = await (await fetch('/api/trains', {cache:'no-store'})).json();
+  } catch (e) {
+    document.getElementById('err').textContent = 'fetch failed: ' + e.message;
+    return;
+  }
+  document.getElementById('err').textContent = d.error ? esc(d.error) : '';
+  const gps = d.source === 'gtfs-realtime';
+  const svc = d.in_service != null ? d.in_service : d.count|0;
+  const oosN = d.out_of_service|0;
+
+  // Three genuinely different states, and they must not be conflated:
+  //   warming  - the server is up but has not completed its first poll. We know
+  //              nothing yet, so claim nothing. Previously `d.age_s ?? 999`
+  //              turned "unknown" into "updated 999s ago", which read as
+  //              16-minute-old data next to "0 in service" and looked broken.
+  //   no data  - a poll ran but returned nothing. Genuinely zero trains.
+  //   normal   - show the count and the real age.
+  // (innerHTML here is safe: every interpolated value is integer-coerced with
+  // |0 or a literal from this file. The only user-supplied strings on the page
+  // go through esc(), never here.)
+  const stat = document.getElementById('stat');
+  if (d.warming || d.age_s == null) {
+    stat.innerHTML = `<span class="dot stale"></span><b>loading…</b>
+       <div class="age">fetching live positions from Auckland Transport</div>`;
+  } else {
+    const age = d.age_s;
+    const cls = age < 45 ? '' : age < 150 ? 'stale' : 'dead';
+    stat.innerHTML =
+      `<span class="dot ${cls}"></span><b>${svc}</b> in service${
+        oosN ? ` <span class="age">+ ${oosN} not in service</span>` : ''}
+       <div class="age">updated ${age}s ago · ${gps
+          ? 'live GPS positions'
+          : (d.stops_polled|0) + ' stations polled'}</div>`;
+  }
+
+  // While warming there is nothing to describe, so don't assert anything about
+  // arrows or squares that aren't on the map yet.
+  document.getElementById('note').textContent = (d.warming || d.age_s == null)
+    ? 'Starting up — the first positions take a few seconds to arrive.'
+    : (gps
+    ? (oosN
+       ? 'Arrows are trains in service. Hollow squares are units not in service — stabled stock, empty-stock moves and depot shunts, which carry no destination.'
+       : 'Real GPS positions from Auckland Transport, with unit numbers and live delays.')
+    : 'No API key: positions interpolated along track geometry from arrival predictions.');
+
+  for (const v of lines.values()) v.count = 0;
+  const seen = new Set();
+
+  for (const t of (d.trains || [])) {
+    // A 6-car service is two coupled sets, and AT gives each its own GPS. Both
+    // used to get a marker, so one physical train showed up twice — and since
+    // AT attaches the trip to only one half, the other was drawn as grey
+    // stabled stock doing line speed with no destination. Draw the service
+    // once, at the half carrying the trip; the popup names both sets.
+    if (t.trailing_half) continue;
+    seen.add(t.id);
+    if (!lines.has(t.route))
+      lines.set(t.route, {name:t.line, colour:t.colour, on:true, count:0});
+    const L_ = lines.get(t.route); L_.count++;
+    const oos = t.in_service === false;
+    const popup = popupFor(t);
+    let m = markers.get(t.id);
+    if (m) {
+      m.setLatLng([t.lat, t.lon]);
+      m.setIcon(icon(t.colour, t.bearing, oos, t.moving, flagFor(t.unit)));
+      m.getPopup().setContent(popup);
+    } else {
+      m = L.marker([t.lat, t.lon],
+            {icon:icon(t.colour, t.bearing, oos, t.moving, flagFor(t.unit)),
+             zIndexOffset: (oos ? 200 : 400) + (hasFault(flagFor(t.unit)) ? 500 : 0)})
+             // services draw above stabled stock; flagged units above everything,
+             // so a warning is never buried under an unflagged train
+            .bindPopup(popup);
+      markers.set(t.id, m); trainLayer.addLayer(m);
+    }
+    m._route = t.route; m._t = t;
+  }
+  for (const [id,m] of markers)
+    if (!seen.has(id)) { trainLayer.removeLayer(m); markers.delete(id); }
+
+  renderLegend(); applyFilter();
+
+  // Services first by ETA; out-of-service units after them, since they have no
+  // ETA to sort by and shouldn't dilute the arrivals board.
+  LAST_TRAINS = d.trains || [];
+  renderList();
+}
+
+// Split out of tick() so the feedback summary can re-render the arrivals list
+// the moment it lands. Same race as the markers: the list is built from the
+// trains feed, which normally arrives first, so warning glyphs would otherwise
+// be missing from the list for the first 10 seconds.
+function renderList() {
+  // Trailing halves are filtered out for the same reason as on the map: one
+  // physical train, one row. The row for the set carrying the trip names both.
+  const sorted = LAST_TRAINS.filter(t => !t.trailing_half).slice().sort((a,b) =>
+    (a.in_service===false) - (b.in_service===false) ||
+    (a.eta_s ?? 1e9) - (b.eta_s ?? 1e9) ||
+    String(a.unit||'').localeCompare(String(b.unit||'')));
+  document.getElementById('list').innerHTML = sorted.map(t =>
+    t.in_service === false
+    ? `<div class="row oos" data-id="${esc(t.id)}">
+         <span class="swatch" style="background:${esc(t.colour)};box-shadow:0 0 0 1.5px rgba(255,255,255,.18)"></span>
+         <span class="unit">${esc(t.unit ?? 'unit')}</span>${warnMini(t.unit)}
+         <span class="where">${t.moving ? 'moving' : 'stabled'}${
+            t.near ? ' · '+esc(t.near) : ''}</span>
+       </div>`
+    : `<div class="row" data-id="${esc(t.id)}">
+       <span class="swatch" style="background:${esc(t.colour)}"></span>
+       <span>${esc(t.to ?? t.line)}</span>
+       ${t.unit ? `<span class="unit">${esc(t.unit)}</span>` : ''}${warnMini(t.unit)}
+       <span class="eta ${t.delay_s>120?'late':''}">${t.eta_s==null?'—':mmss(t.eta_s)}</span>
+     </div>`).join('');
+  document.getElementById('list').querySelectorAll('.row').forEach(r => r.onclick = () => {
+    const m = markers.get(r.dataset.id);
+    if (m) { map.setView(m.getLatLng(), 14); m.openPopup(); }
+  });
+}
+// Normal cadence is 10s, but a cold start has no data to show and the server
+// is usually ready in ~3s — waiting a full 10s leaves a visitor looking at a
+// "loading" panel long after it's stale. Poll every 1.5s until data arrives,
+// then settle into the steady rhythm.
+let WARMUP_TIMER = setInterval(async () => {
+  await tick();
+  if (LAST_TRAINS.length) { clearInterval(WARMUP_TIMER); WARMUP_TIMER = null; }
+}, 1500);
+setTimeout(() => { if (WARMUP_TIMER) clearInterval(WARMUP_TIMER); }, 60000);
+tick(); setInterval(tick, 10000);
+loadFeedback(); setInterval(loadFeedback, 60000);
+// Couples form and break as trains join/split and as halves stop reporting,
+// so refresh near the trains cadence rather than once at load. refreshFlags()
+// rebuilds popups so a newly detected couple appears without a reopen.
+loadCouples().then(refreshFlags);
+setInterval(() => loadCouples().then(refreshFlags), 30000);
+
+// Transient confirmation. textContent, not innerHTML — these strings include
+// server error text, which must never be parsed as markup.
+let TOAST_T = null;
+function toast(text) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = String(text || '');
+  el.classList.add('on');
+  clearTimeout(TOAST_T);
+  TOAST_T = setTimeout(() => el.classList.remove('on'), 2600);
+}
+
+// ------------------------------------------------------------- station board
+//
+// Tapping a station answers "what's next from here?" — the question a map of
+// moving dots cannot. It reuses /api/departures, which runs the planner's own
+// risk annotation, so a board and a planned journey never contradict.
+let BOARD = null;          // station currently shown, for the refresh tick
+
+async function openBoard(name) {
+  BOARD = name;
+  document.getElementById('sttitle').textContent = name;
+  document.getElementById('stres').innerHTML = '';
+  document.getElementById('stmsg').className = 'msg';
+  document.getElementById('stmsg').textContent = 'loading departures…';
+  document.getElementById('stwrap').classList.add('on');
+  await loadBoard();
+}
+
+async function loadBoard() {
+  if (!BOARD) return;
+  const msg = document.getElementById('stmsg');
+  const res = document.getElementById('stres');
+  try {
+    const d = await (await fetch('/api/departures?station='
+                     + encodeURIComponent(BOARD) + '&limit=8')).json();
+    if (d.error) { msg.className = 'msg bad'; msg.textContent = d.error; return; }
+    // Say which board this is. AT's own feed carries real expected times and
+    // real platforms; our timetable reconstruction does not, and conflating
+    // them would be the dishonest option.
+    if (d.source === 'at-live') {
+      msg.className = 'msg';
+      msg.innerHTML = '<span class="livedot"></span> Live from AT';
+    } else if (d.live_error) {
+      msg.className = 'msg';
+      msg.innerHTML = '<span class="muted">Timetable only \u2014 AT\u2019s live board '
+                    + 'is unavailable right now. Times may not reflect delays.</span>';
+    } else {
+      msg.className = 'msg';
+      msg.innerHTML = '<span class="muted">Timetable \u2014 no live services '
+                    + 'running at this station right now.</span>';
+    }
+    if (!d.departures || !d.departures.length) {
+      res.innerHTML = '<div class="muted">Nothing scheduled in the next couple of hours.</div>';
+      return;
+    }
+    res.innerHTML = d.departures.map(x => {
+      const r = x.risk || {};
+      // The same three honest states as the planner. A set number appears only
+      // when a feed actually names one.
+      let tag = '';
+      if (r.state === 'known') {
+        const p = r.level === 'high' ? 'p3' : r.level === 'medium' ? 'p2' : 'p1';
+        tag = `<button type="button" class="pee ${p} setlink" data-set="${r.set_no|0}"
+                 aria-label="Show set ${r.set_no|0}">set ${r.set_no|0}</button>`;
+      } else if (r.state === 'no-data') {
+        tag = `<button type="button" class="unit setlink" data-set="${r.set_no|0}"
+                 aria-label="Show set ${r.set_no|0}">set ${r.set_no|0}</button>`;
+      } else {
+        tag = '<span class="muted">set not assigned</span>';
+      }
+      // 'live' means AT has a vehicle tracked against this departure, so the
+      // time is a real estimate. Without it the time is the timetable, and a
+      // rider should know the difference before trusting a 1-minute gap.
+      const liveTag = x.live
+        ? '<span class="livedot" title="tracked by AT"></span>'
+        : '';
+      // Show the scheduled time too when AT's estimate has moved off it.
+      const slip = (x.scheduled && x.scheduled !== x.dep)
+        ? `<span class="muted"> (sched ${esc(x.scheduled)})</span>` : '';
+      const mins = (x.eta_s != null) ? Math.max(0, Math.round(x.eta_s / 60))
+                                     : (x.mins_away | 0);
+      return `<div class="brow">
+        <span class="btime">${liveTag}${esc(x.dep)}${slip}</span>
+        <span class="bdest">${esc(x.dest || '')}</span>
+        ${tag}
+        <span class="bmin">${mins}m</span>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    msg.className = 'msg bad'; msg.textContent = 'could not load departures';
+  }
+}
+
+function closeBoard() {
+  document.getElementById('stwrap').classList.remove('on');
+  BOARD = null;
+}
+document.getElementById('stclose').onclick = closeBoard;
+document.getElementById('stwrap').onclick = e => {
+  if (e.target.id === 'stwrap') closeBoard();
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('stwrap').classList.contains('on'))
+    closeBoard();
+});
+// An open board goes stale as trains move and get assigned, so refresh it on
+// the trains cadence rather than leaving a frozen timetable on screen.
+setInterval(() => { if (BOARD) loadBoard(); }, 20000);
+
+// Station labels are hidden only when genuinely zoomed out. The threshold has
+// to sit BELOW the default view (zoom 11) or the labels are invisible at the
+// one zoom every visitor actually lands on — which was the first version of
+// this, and it silently defeated the whole feature.
+function zoomClass() {
+  document.getElementById('map').classList.toggle('lowzoom', map.getZoom() < 11);
+}
+map.on('zoomend', zoomClass);
+zoomClass();
+
+// ----------------------------------------------------------- journey planner
+//
+// The planner answers one question: "which train should I get, and is it going
+// to smell?" Everything else (buses, walking, fares, changes) is AT's job and
+// we would do it worse.
+let STATIONS = null;
+let COUPLES = {};    // set_no -> consist pairing
+let COUPLE_SRC = null;   // 'at' | 'inferred' | null
+
+// Consist data. AT publishes the units working each trip via
+// serviceinfo/v1/vehicles/byTripId, which is the source behind "6 CAR" on the
+// platform displays — that gives the carriage count and BOTH set numbers.
+// Which half is at the front is not published by anyone, so that part stays
+// geometric (see src/consist.py). Entries carry `source`, and the UI words
+// itself differently for published vs inferred so a guess never reads as fact.
+async function loadCouples() {
+  try {
+    const d = await (await fetch('/api/consist')).json();
+    COUPLES = d.couples || {};
+    COUPLE_SRC = d.source || null;
+  } catch (err) { /* keep the last known pairing rather than blanking it */ }
+}
+
+async function ensureStations() {
+  if (STATIONS) return STATIONS;
+  const d = await (await fetch('/api/stations')).json();
+  STATIONS = d.stations || [];
+  for (const id of ['jpfrom', 'jpto']) {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '<option value="">Choose…</option>' +
+      STATIONS.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
+  }
+  // Remember the last trip — a commuter runs the same journey twice a day and
+  // re-picking two dropdowns every time would be tedious.
+  const last = JSON.parse(localStorage.getItem('lastTrip') || 'null');
+  if (last) {
+    document.getElementById('jpfrom').value = last.from || '';
+    document.getElementById('jpto').value = last.to || '';
+  }
+  return STATIONS;
+}
+
+function openPlanner() {
+  ensureStations().then(() => {
+    document.getElementById('jpwrap').classList.add('on');
+  });
+}
+function closePlanner() {
+  document.getElementById('jpwrap').classList.remove('on');
+}
+document.getElementById('planbtn').onclick = openPlanner;
+document.getElementById('jpclose').onclick = closePlanner;
+document.getElementById('jpwrap').onclick = e => {
+  if (e.target.id === 'jpwrap') closePlanner();
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('jpwrap').classList.contains('on'))
+    closePlanner();
+});
+
+// GPS. The browser asks permission; the coordinates go to /api/nearest for one
+// lookup and are not stored by us. If the fix lands nowhere near the rail
+// network we say so rather than silently picking a station 40 km away.
+document.getElementById('jpgps').onclick = () => {
+  const msg = document.getElementById('jpmsg');
+  if (!navigator.geolocation) {
+    msg.className = 'msg bad';
+    msg.textContent = 'This browser has no location support.';
+    return;
+  }
+  msg.className = 'msg';
+  msg.textContent = 'finding you…';
+  navigator.geolocation.getCurrentPosition(async pos => {
+    try {
+      const q = `lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`;
+      const d = await (await fetch('/api/nearest?' + q)).json();
+      if (d.error) { msg.className = 'msg bad'; msg.textContent = d.error; return; }
+      await ensureStations();
+      document.getElementById('jpfrom').value = d.station;
+      msg.className = 'msg';
+      msg.textContent = d.near
+        ? `Nearest station: ${d.station} (${d.metres} m)`
+        : `Closest station is ${d.station}, but it's ${(d.metres/1000).toFixed(1)} km away — you may not be near the train network.`;
+    } catch (err) {
+      msg.className = 'msg bad';
+      msg.textContent = 'could not look up your location';
+    }
+  }, err => {
+    msg.className = 'msg bad';
+    // Permission denied is a choice, not a fault — don't nag.
+    msg.textContent = err.code === 1
+      ? 'Location permission declined — pick a station manually.'
+      : 'Could not get a location fix.';
+  }, {timeout: 10000, maximumAge: 60000});
+};
+
+document.getElementById('jpgo').onclick = async () => {
+  const from = document.getElementById('jpfrom').value;
+  const to   = document.getElementById('jpto').value;
+  const msg  = document.getElementById('jpmsg');
+  const res  = document.getElementById('jpres');
+  if (!from || !to) {
+    msg.className = 'msg bad'; msg.textContent = 'Pick both stations.'; return;
+  }
+  if (from === to) {
+    msg.className = 'msg bad'; msg.textContent = 'Those are the same station.'; return;
+  }
+  localStorage.setItem('lastTrip', JSON.stringify({from, to}));
+  msg.className = 'msg'; msg.textContent = 'looking up trains…';
+  res.innerHTML = '';
+  try {
+    const d = await (await fetch('/api/journey?origin=' + encodeURIComponent(from)
+                      + '&dest=' + encodeURIComponent(to))).json();
+    if (d.error) { msg.className = 'msg bad'; msg.textContent = d.error; return; }
+    msg.textContent = '';
+    renderPlan(res, d);
+  } catch (err) {
+    msg.className = 'msg bad'; msg.textContent = 'planner unavailable';
+  }
+};
+
+function renderPlan(el, d) {
+  if (!d.departures || !d.departures.length) {
+    el.innerHTML = '<div class="muted">No direct trains in the next 3 hours. '
+                 + 'You may need to change — try planning each leg.</div>';
+    return;
+  }
+  el.innerHTML = d.departures.map(x => {
+    const r = x.risk || {};
+    let warn = '';
+    if (r.state === 'known' && r.level) {
+      // Only here do we name a set: the realtime feed has a vehicle attached
+      // to this trip, so the set number and its history are both real.
+      const cls = r.level === 'high' ? 'p3' : r.level === 'medium' ? 'p2' : 'p1';
+      const lbl = r.level === 'high' ? 'PEE TRAIN RISK'
+                : r.level === 'medium' ? 'possible pee smell' : 'faint pee smell';
+      warn = `<div class="jrisk ${cls}">
+          <b>${esc(lbl)}</b> — <button type="button" class="setlink bare"
+             data-set="${r.set_no|0}" aria-label="Show set ${r.set_no|0}">set ${r.set_no|0}</button>, ${r.n|0} open report(s)
+          ${r.car_label ? `<br>Avoid <b>${esc(r.car_label)}</b>` : ''}
+          ${r.n_sixcar ? `<br><span class="muted">Carriage unknown: ${r.n_sixcar|0}
+             report(s) came from a 6-car service</span>` : ''}
+        </div>`;
+    } else if (r.state === 'no-data') {
+      warn = `<div class="jok"><button type="button" class="setlink bare"
+              data-set="${r.set_no|0}" aria-label="Show set ${r.set_no|0}">Set ${r.set_no|0}</button>
+              — no open smell reports</div>`;
+    } else {
+      // Honest about the limit: AT does not publish which set runs a future
+      // service, so we refuse to guess.
+      warn = `<div class="muted jun">Train not assigned yet — we can't tell you
+              which set this will be until it's running.</div>`;
+    }
+    return `<div class="jd">
+      <div class="jt"><b>${esc(x.dep)}</b> &rarr; ${esc(x.arr)}
+        <span class="muted">${x.duration_min|0} min · ${x.stops|0} stops</span></div>
+      <div class="muted">${esc(x.route || '')} towards ${esc(x.headsign || '')}
+        · in ${x.mins_away|0} min</div>
+      ${warn}
+    </div>`;
+  }).join('');
+}
+
+
+
+// Any element carrying data-set jumps to that set. Delegated, because the
+// board and planner rebuild their rows on every refresh and per-row handlers
+// would be lost.
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.setlink');
+  if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  goToSet(b.dataset.set);
+});
+</script>
+</body>
+</html>

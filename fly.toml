@@ -1,0 +1,47 @@
+# Fly.io — Auckland live train map.
+#
+# Region syd: closest to both the riders and Auckland Transport's API.
+#
+# IMPORTANT: one machine only, and never scaled to zero.
+#   - The server polls AT every 20s on behalf of ALL visitors, so a second
+#     machine would double the API call rate for no benefit and the two would
+#     hold separate, diverging copies of the SQLite feedback DB.
+#   - auto_stop_machines would park the poller, so a visitor's first load would
+#     show an empty map until the first poll completed.
+
+app = "akl-trains"
+primary_region = "syd"
+
+[build]
+
+[env]
+  PORT = "8080"
+  FEEDBACK_DB = "/data/feedback.db"
+
+[[mounts]]
+  source = "traindata"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "45s"
+  method = "GET"
+  path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

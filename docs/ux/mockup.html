@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="en-nz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auckland trains — proposed UX refresh (static mockup)</title>
+<!--
+  STATIC MOCKUP — docs/ux/mockup.html
+  Self-contained: no build step, no network requests, no fonts fetched.
+  Opens from a file:// URL. All content is realistic fake data consistent with
+  the real domain (post-CRL station names, AM-class set numbers, AT line colours).
+  The map backdrop is drawn with inline SVG rather than Leaflet, so the file has
+  zero network dependencies; the real implementation keeps Leaflet from CDN.
+
+  Demonstrates: the token system, the bottom action bar, sheets, the ambiguity
+  chooser, the certainty vocabulary, severity pips, the carriage picker, and the
+  empty / loading / error / unknown states.
+-->
+<style>
+:root{
+  /* surfaces */
+  --bg:#0d1117; --panel:#161c24; --panel-2:#1C232E; --field:#0F141B;
+  /* boundaries */
+  --edge:#626D7E;      /* 3.27 on panel, 3.61 on bg, 3.53 on field — AA 1.4.11 */
+  --rule:#2B3440;      /* decorative hairlines INSIDE a panel only */
+  /* text */
+  --fg:#E6EDF5;        /* 14.52 on panel */
+  --fg-2:#9FB0C3;      /*  7.73 on panel */
+  --fg-3:#7E8DA0;      /*  5.06 on panel */
+  /* interactive */
+  --accent:#1F5BD7;    /* #FFF on it = 5.94 — AA */
+  --accent-hi:#3B7BF0;
+  --focus:#7FB3FF;     /* 7.99 on panel */
+  /* status */
+  --live:#3FB950; --stale:#D29922; --dead:#F85149; --ok:#4FD272;
+  /* AT line colours — FIXED BY AUCKLAND TRANSPORT, NOT REDESIGNED */
+  --l-sc:#D52923; --l-ew:#97C93D; --l-ow:#00AEEF; --l-huia:#c678dd;
+  /* spacing */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px;
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-pill:999px;
+  --bar-h:64px; --strip-h:40px; --tap:48px; --tap-lg:56px;
+  --font:-apple-system,"Segoe UI",system-ui,Roboto,"Helvetica Neue",sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#07090d;color:var(--fg);font:15px/1.45 var(--font);
+     -webkit-font-smoothing:antialiased}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+         clip:rect(0 0 0 0);white-space:nowrap;border:0}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:inherit}
+
+/* ───────── page scaffold (mockup chrome only, not part of the product) ───── */
+.doc{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+.doc h1{font-size:24px;margin:0 0 4px}
+.doc .lede{color:var(--fg-2);font-size:14px;margin:0 0 24px;max-width:72ch}
+.doc h2{font-size:17px;margin:40px 0 6px;padding-top:16px;border-top:1px solid #1b222c}
+.doc h3{font-size:14px;color:var(--fg-2);font-weight:600;margin:20px 0 8px;
+        text-transform:uppercase;letter-spacing:.05em}
+.doc p.note{color:var(--fg-3);font-size:13px;max-width:74ch;margin:6px 0 14px}
+.frames{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+.framewrap{width:390px}
+.framecap{font-size:12px;color:var(--fg-3);margin:8px 2px 0;line-height:1.4}
+
+/* ───────── the phone frame: 390x844 ───────── */
+.phone{position:relative;width:390px;height:844px;background:var(--bg);
+       border-radius:22px;overflow:hidden;border:1px solid #232c38;
+       box-shadow:0 12px 40px rgba(0,0,0,.6)}
+
+/* map backdrop (inline SVG — stands in for Leaflet) */
+.map{position:absolute;inset:0;background:#0b1016}
+.map svg{width:100%;height:100%;display:block}
+.stdot{fill:#1a2029;stroke:#fff;stroke-width:1.4}
+.stlabel{fill:#DCE8F5;font:700 11.5px var(--font);
+         paint-order:stroke;stroke:#0d1117;stroke-width:3.2px;stroke-linejoin:round}
+
+/* ───────── status strip ───────── */
+.strip{position:absolute;top:0;left:0;right:0;height:var(--strip-h);z-index:700;
+       background:linear-gradient(#0d1117f2,#0d1117cc 70%,#0d111700);
+       padding:5px 14px 0;display:flex;flex-direction:column;justify-content:center}
+.strip .l1{display:flex;align-items:center;gap:7px;font-size:13.5px;line-height:1.2}
+.strip .l2{color:var(--fg-2);font-size:11.5px;line-height:1.3;margin-top:1px}
+.strip b{font-weight:700;font-variant-numeric:tabular-nums}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--live);flex:0 0 auto}
+.dot.stale{background:var(--stale)} .dot.dead{background:var(--dead)}
+.statword{color:var(--fg-2);font-size:11.5px}
+.oostoggle{margin-left:auto;background:var(--panel-2);color:var(--fg-2);
+           border:1px solid var(--edge);border-radius:var(--r-pill);
+           padding:3px 9px;font:600 11.5px var(--font);cursor:pointer;min-height:24px}
+
+/* ───────── bottom action bar ───────── */
+.bar{position:absolute;left:0;right:0;bottom:0;height:var(--bar-h);z-index:700;
+     background:var(--panel);border-top:1px solid var(--edge);
+     display:grid;grid-template-columns:repeat(4,1fr);padding:0 8px}
+.baritem{appearance:none;background:none;border:0;color:var(--fg-2);
+         font:600 11.5px/1.1 var(--font);letter-spacing:.04em;text-transform:uppercase;
+         display:flex;flex-direction:column;align-items:center;justify-content:center;
+         gap:4px;min-height:var(--tap);cursor:pointer;border-top:3px solid transparent;
+         margin-top:-1px}
+.baritem .ic{font-size:21px;line-height:1}
+.baritem[aria-current="true"]{color:var(--fg);border-top-color:var(--focus)}
+.baritem:hover{color:var(--fg)}
+
+/* ───────── sheet ───────── */
+.sheet{position:absolute;left:0;right:0;bottom:var(--bar-h);z-index:800;
+       background:var(--panel);border:1px solid var(--edge);border-bottom:0;
+       border-radius:var(--r-lg) var(--r-lg) 0 0;max-height:70vh;display:flex;
+       flex-direction:column;box-shadow:0 -8px 32px rgba(0,0,0,.55)}
+.grab{width:36px;height:4px;border-radius:2px;background:var(--edge);
+      margin:8px auto 2px;flex:0 0 auto}
+.sheethead{display:flex;align-items:center;gap:8px;padding:4px 8px 8px 16px;flex:0 0 auto}
+.sheethead h2{font-size:20px;line-height:1.25;margin:0;font-weight:700;flex:1}
+.sheethead .sub{display:block;font-size:12.5px;color:var(--fg-2);font-weight:400;margin-top:1px}
+.xbtn{width:var(--tap);height:var(--tap);flex:0 0 auto;border-radius:var(--r-md);
+      background:var(--panel-2);border:1px solid var(--edge);color:var(--fg);
+      font-size:17px;cursor:pointer}
+.sheetbody{overflow:auto;padding:0 8px 12px;overscroll-behavior:contain}
+
+/* section labels */
+.seclabel{position:sticky;top:0;background:var(--panel);z-index:1;
+          font:700 11.5px/1.2 var(--font);letter-spacing:.06em;text-transform:uppercase;
+          color:var(--fg-2);padding:10px 8px 6px;border-bottom:1px solid var(--rule)}
+.seclabel.collapsible{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;
+          background:var(--panel);border:0;border-bottom:1px solid var(--rule);
+          cursor:pointer;text-align:left}
+.seclabel .cnt{color:var(--fg-3);font-weight:600;letter-spacing:0;text-transform:none}
+.seclabel .chev{margin-left:auto;color:var(--fg-3)}
+
+/* ───────── train / station rows ───────── */
+.row{display:grid;grid-template-columns:4px 1fr auto 58px;gap:10px;align-items:center;
+     width:100%;min-height:var(--tap);padding:6px 8px;background:none;border:0;
+     border-radius:var(--r-md);color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+.row:hover{background:var(--panel-2)}
+.row .lb{width:4px;height:30px;border-radius:2px;background:var(--fg-3)}
+.row .main{min-width:0}
+.row .dest{display:block;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;
+           text-overflow:ellipsis}
+/* The meta line must not wrap: a wide certainty chip was squeezing the column
+   and pushing "AMP 1114 · Eastern / Western" onto three lines. */
+.row .meta{font-size:12.5px;color:var(--fg-2);font-variant-numeric:tabular-nums;
+           white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.row .eta{font-size:17px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.row .eta.late{color:var(--warnfg,#F0A35E)}
+.row.oos{opacity:.72}
+.row.oos .eta{font-size:12.5px;font-weight:600;color:var(--fg-2)}
+
+/* ───────── chips: the certainty + severity vocabulary ───────── */
+.chip{display:inline-flex;align-items:center;gap:5px;min-height:24px;
+      border-radius:var(--r-sm);padding:3px 8px;font:700 12px/1.2 var(--font);
+      white-space:nowrap;vertical-align:middle}
+.chip .pips{letter-spacing:1px;font-size:11.5px}   /* type floor applies to pips too */
+.chip--sev1{background:#3A3520;color:#F2DFA0}      /* 9.26:1 */
+.chip--sev2{background:#45321D;color:#FFC08A}      /* 7.62:1 */
+.chip--sev3{background:#5A1F22;color:#FFC2C2}      /* 8.31:1 */
+.chip--praise{background:#1D3A24;color:#A8E6B4}    /* 8.70:1 */
+.chip--unknown{background:#262E3B;color:#C3CEDE}   /* 8.59:1 — NEVER red */
+.chip--inferred{background:#16202C;color:#A9CFF0}  /* 10.08:1 */
+.chip--people{background:#2D3550;color:#BDCCF0}    /* 7.52:1 */
+.chip--resolved{background:#1D3A24;color:#A8E6B4}
+.chip--oos{background:#262E3B;color:#C3CEDE;font-weight:600}
+.chip--reports{background:#262E3B;color:#C3CEDE}
+.chip.sm{font-size:11.5px;padding:2px 7px;min-height:24px}
+
+/* ───────── buttons ───────── */
+.btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+     min-height:44px;padding:11px 16px;border-radius:var(--r-md);
+     background:var(--panel-2);color:var(--fg);border:1px solid var(--edge);
+     font:600 14px var(--font);cursor:pointer}
+.btn:hover{background:#242d3a}
+.btn--primary{background:var(--accent);color:#fff;border-color:var(--edge);
+              min-height:var(--tap-lg);font-size:15px;width:100%}
+.btn--primary:hover{background:var(--accent-hi)}
+.btn--ghost{background:transparent}
+.btn--block{width:100%}
+.btn--sm{min-height:44px;padding:9px 13px;font-size:13px}
+
+/* ───────── detail sheet internals ───────── */
+.dsect{border-top:1px solid var(--rule);padding:12px 8px}
+.dsect:first-of-type{border-top:0}
+.kv{display:flex;gap:10px;align-items:baseline;font-size:15px;margin-bottom:3px}
+.kv .k{color:var(--fg-2);font-size:12.5px;min-width:74px}
+.kv .v{font-weight:600}
+.big{font:700 28px/1.1 var(--font);font-variant-numeric:tabular-nums}
+.sub{color:var(--fg-2);font-size:13px}
+.micro{color:var(--fg-3);font-size:11.5px}
+.inferline{display:flex;gap:8px;align-items:flex-start;background:#16202C;
+           color:#A9CFF0;border-radius:var(--r-md);padding:9px 10px;font-size:13px;
+           line-height:1.4;margin-top:8px}
+.whybtn{flex:0 0 auto;width:24px;height:24px;border-radius:50%;background:#2a3a4a;
+        color:#A9CFF0;border:1px solid var(--edge);font:700 12px var(--font);
+        cursor:pointer;line-height:1}
+.whytext{margin-top:8px;background:var(--panel-2);border:1px solid var(--edge);
+         border-radius:var(--r-md);padding:10px;font-size:13px;color:var(--fg-2);
+         line-height:1.5}
+.avoidline{background:#45321D;color:#FFC08A;border-radius:var(--r-md);
+           padding:9px 10px;font-size:13px;margin-top:8px}
+
+/* report log */
+.lr{border-top:1px solid var(--rule);padding:10px 0}
+.lh{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.lh .when{margin-left:auto;color:var(--fg-3);font-size:11.5px;
+          font-variant-numeric:tabular-nums}
+.ln{font-size:14px;margin:6px 0;line-height:1.45}
+.lv{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;margin-top:8px}
+.lv .q{color:var(--fg-2);font-size:12.5px;width:100%}
+.vote{min-height:44px;padding:10px 14px;border-radius:var(--r-pill);
+      background:var(--field);color:var(--fg);border:1px solid var(--edge);
+      font:600 13px var(--font);cursor:pointer}
+.vote[aria-pressed="true"]{border-color:var(--focus);box-shadow:inset 0 0 0 1px var(--focus);
+      background:#1d2836}
+
+/* ───────── departure board ───────── */
+.brow{display:grid;grid-template-columns:4px 56px 1fr auto 46px;gap:10px;align-items:center;
+      width:100%;min-height:var(--tap);padding:6px 8px;background:none;border:0;
+      border-bottom:1px solid var(--rule);color:var(--fg);font:inherit;text-align:left;
+      cursor:pointer;border-radius:var(--r-md)}
+.brow:hover{background:var(--panel-2)}
+.btime{font:700 16px var(--font);font-variant-numeric:tabular-nums}
+.bdest{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bmin{text-align:right;color:var(--fg-2);font-size:13px;font-variant-numeric:tabular-nums}
+
+/* ───────── chooser ───────── */
+.chooser{position:absolute;z-index:1100;width:252px;background:var(--panel-2);
+         border:1px solid var(--edge);border-radius:var(--r-md);
+         box-shadow:0 6px 20px rgba(0,0,0,.6);overflow:hidden}
+.chooser .ch{font:600 12px var(--font);color:var(--fg-2);padding:9px 12px 7px;
+             border-bottom:1px solid var(--rule)}
+.chooser .crow{display:grid;grid-template-columns:4px 20px 1fr auto;gap:9px;align-items:center;
+               width:100%;min-height:var(--tap);padding:6px 12px;background:none;border:0;
+               color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+.chooser .crow:hover,.chooser .crow:focus-visible{background:#26303d}
+.chooser .ci{color:var(--fg-2);text-align:center;font-size:13px}
+.chooser .cn{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;
+             text-overflow:ellipsis}
+.chooser .cs{font-size:11.5px;color:var(--fg-2);font-weight:400}
+.chooser .cr{color:var(--fg-2);font-size:12.5px;font-variant-numeric:tabular-nums}
+.tapmark{position:absolute;width:40px;height:40px;border-radius:50%;
+         border:2px dashed var(--focus);opacity:.9;z-index:1050}
+
+/* ───────── dialog (report form) ───────── */
+.backdrop{position:absolute;inset:0;background:rgba(5,8,12,.72);z-index:1200;
+          display:flex;align-items:center;justify-content:center;padding:16px}
+.dialog{width:100%;max-width:358px;max-height:88vh;overflow:auto;background:var(--panel);
+        border:1px solid var(--edge);border-radius:var(--r-lg);padding:16px;
+        box-shadow:0 8px 32px rgba(0,0,0,.6)}
+.dialog h2{font-size:20px;margin:0 0 2px}
+.dialog .hint{color:var(--fg-2);font-size:13px;margin-bottom:12px;line-height:1.45}
+label.f{display:block;font-size:13px;color:var(--fg-2);margin:14px 0 5px;font-weight:600}
+select,input[type=text],input[type=date],textarea{
+  width:100%;min-height:var(--tap);background:var(--field);color:var(--fg);
+  border:1px solid var(--edge);border-radius:var(--r-md);padding:10px 12px;
+  font:16px var(--font)}            /* 16px prevents iOS zoom-on-focus */
+textarea{min-height:76px;resize:vertical;line-height:1.45}
+.row2{display:flex;gap:10px}.row2>*{flex:1}
+.pick{display:flex;gap:6px}
+.pick button{flex:1;min-height:var(--tap);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;background:var(--field);
+  color:var(--fg-2);border:1px solid var(--edge);border-radius:var(--r-md);
+  font:600 13px var(--font);cursor:pointer;min-width:0;padding:6px 2px}
+.pick button .cs{font-size:11.5px;font-weight:400;opacity:.85}
+.pick button[aria-checked="true"]{background:#1d2836;color:var(--fg);
+  border-color:var(--focus);box-shadow:inset 0 0 0 1px var(--focus)}
+.carpick{display:flex;gap:6px}
+.carpick button{flex:1;min-width:0;min-height:56px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;background:var(--field);
+  color:var(--fg-2);border:1px solid var(--edge);border-radius:var(--r-md);
+  font:var(--font);cursor:pointer;padding:4px 0}
+.carpick .gx{font-size:13px;line-height:1}
+.carpick .gl{font-size:15px;font-weight:700;line-height:1}
+.carpick button[aria-checked="true"]{background:#1d2836;color:var(--fg);
+  border-color:var(--focus);box-shadow:inset 0 0 0 1px var(--focus)}
+.acts{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.warnbox{background:#3a2a1c;color:#F0B97A;border-radius:var(--r-md);padding:10px;
+         font-size:13px;line-height:1.5;margin-top:8px}
+
+/* ───────── states gallery ───────── */
+.statecard{background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-lg);
+           padding:14px;width:358px}
+.statecard .t{font:700 11.5px var(--font);letter-spacing:.06em;text-transform:uppercase;
+              color:var(--fg-3);margin-bottom:9px}
+.skel{height:48px;border-radius:var(--r-md);margin-bottom:6px;
+      background:linear-gradient(90deg,#1b222c,#232c38,#1b222c)}
+.centred{text-align:center;padding:22px 12px}
+.centred .h{font-size:16px;font-weight:600;margin-bottom:5px}
+.centred .p{color:var(--fg-2);font-size:13.5px;line-height:1.5}
+
+/* ───────── desktop frame ───────── */
+.desk{position:relative;width:1280px;height:900px;background:var(--bg);
+      border:1px solid #232c38;border-radius:14px;overflow:hidden;
+      display:grid;grid-template-columns:320px 1fr;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.rail{background:var(--panel);border-right:1px solid var(--edge);overflow:auto;padding:14px}
+.rail h2{font-size:20px;margin:0 0 2px}
+.rail .secttl{font:700 11.5px var(--font);letter-spacing:.06em;text-transform:uppercase;
+              color:var(--fg-2);margin:18px 0 6px;padding-top:12px;
+              border-top:1px solid var(--rule)}
+.legrow{display:flex;align-items:center;gap:10px;width:100%;min-height:var(--tap);
+        padding:0 6px;background:none;border:0;color:var(--fg);font:inherit;
+        cursor:pointer;border-radius:var(--r-md);text-align:left}
+.legrow:hover{background:var(--panel-2)}
+.swatch{width:14px;height:14px;border-radius:50%;flex:0 0 auto;
+        box-shadow:0 0 0 1.5px rgba(255,255,255,.35)}
+.legrow .n{margin-left:auto;color:var(--fg-2);font-variant-numeric:tabular-nums;font-size:13px}
+/* 24px satisfies 2.5.8 on its own; the 48px row is also a target for the same
+   action, which is the criterion's "Equivalent" case either way. */
+.legrow input{width:24px;height:24px;min-height:0;accent-color:var(--focus);flex:0 0 auto;
+              padding:0;border:0}
+.deskmap{position:relative;background:#0b1016}
+.zoomctl{position:absolute;top:12px;right:12px;z-index:50;display:flex;flex-direction:column;
+         border-radius:var(--r-md);overflow:hidden;border:1px solid var(--edge)}
+.zoomctl button{width:40px;height:40px;background:var(--panel);color:var(--fg);border:0;
+                font-size:19px;cursor:pointer}
+.zoomctl button+button{border-top:1px solid var(--edge)}
+
+/* swatch legend for the token table */
+.tok{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 0}
+.tokc{width:170px;background:var(--panel);border:1px solid var(--edge);
+      border-radius:var(--r-md);padding:9px}
+.tokc .sw{height:34px;border-radius:var(--r-sm);border:1px solid var(--edge);margin-bottom:7px}
+.tokc code{font:600 11.5px ui-monospace,Menlo,Consolas,monospace;color:var(--fg)}
+.tokc .r{display:block;color:var(--fg-3);font-size:11.5px;margin-top:2px}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important}
+}
+@media (prefers-contrast: more){ :root{ --edge:#8A99AD } }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<h1>Auckland trains — proposed UX refresh</h1>
+<p class="lede">Static mockup of the proposal in <code>PROPOSAL.md</code>. Dark theme retained,
+AT line colours untouched, honesty vocabulary made systematic. Every interactive target here is
+at least 44&times;48&nbsp;px; every colour pair was computed against WCAG&nbsp;2.2 thresholds.
+Content is realistic fake data.</p>
+
+<!-- ════════════════════════ 1. MAIN SCREENS ════════════════════════ -->
+<h2>1. Main screens — phone 390 × 844</h2>
+
+<div class="frames">
+
+  <!-- ── A. map at rest ── -->
+  <div class="framewrap">
+  <div class="phone">
+    <div class="map">
+      <svg viewBox="0 0 390 844" aria-hidden="true">
+        <rect width="390" height="844" fill="#0b1016"/>
+        <!-- water / land hints -->
+        <path d="M0 150 Q120 120 240 165 T390 140 L390 0 L0 0Z" fill="#0d141c"/>
+        <path d="M0 620 Q140 600 260 640 T390 615 L390 844 L0 844Z" fill="#0d141c"/>
+        <!-- lines -->
+        <path d="M44 268 L120 250 L190 236 L232 250 L268 300 L300 420 L318 560 L330 700"
+              stroke="#D52923" stroke-width="3.5" fill="none" opacity=".9"/>
+        <path d="M44 268 L120 250 L190 236 L250 214 L318 206 L360 236"
+              stroke="#97C93D" stroke-width="3.5" fill="none" opacity=".9"/>
+        <path d="M232 250 L222 318 L206 368" stroke="#00AEEF" stroke-width="3.5"
+              fill="none" opacity=".9"/>
+        <path d="M330 700 L344 780" stroke="#c678dd" stroke-width="3.5" fill="none" opacity=".9"/>
+        <!-- stations -->
+        <g>
+          <circle class="stdot" cx="190" cy="236" r="3.6"/><text class="stlabel" x="190" y="226" text-anchor="middle">Waitemata</text>
+          <circle class="stdot" cx="232" cy="250" r="3.6"/><text class="stlabel" x="246" y="246" text-anchor="start">Newmarket</text>
+          <circle class="stdot" cx="120" cy="250" r="3.6"/><text class="stlabel" x="120" y="240" text-anchor="middle">Maungawhau</text>
+          <circle class="stdot" cx="268" cy="300" r="3.6"/><text class="stlabel" x="282" y="296" text-anchor="start">Panmure</text>
+          <circle class="stdot" cx="206" cy="368" r="3.6"/><text class="stlabel" x="206" y="358" text-anchor="middle">Onehunga</text>
+          <circle class="stdot" cx="300" cy="420" r="3.6"/><text class="stlabel" x="314" y="416" text-anchor="start">Otahuhu</text>
+          <circle class="stdot" cx="318" cy="560" r="3.6"/><text class="stlabel" x="332" y="556" text-anchor="start">Puhinui</text>
+          <circle class="stdot" cx="330" cy="700" r="3.6"/><text class="stlabel" x="316" y="696" text-anchor="end">Papakura</text>
+          <circle class="stdot" cx="44"  cy="268" r="3.6"/><text class="stlabel" x="58" y="264" text-anchor="start">Swanson</text>
+          <circle class="stdot" cx="344" cy="780" r="3.6"/><text class="stlabel" x="330" y="776" text-anchor="end">Pukekohe</text>
+        </g>
+        <!-- in-service arrows -->
+        <g transform="translate(250 272) rotate(150)"><path d="M0 -9 L7 10 L0 5.5 L-7 10 Z" fill="#D52923" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+        <g transform="translate(160 240) rotate(285)"><path d="M0 -9 L7 10 L0 5.5 L-7 10 Z" fill="#97C93D" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+        <g transform="translate(310 480) rotate(175)"><path d="M0 -9 L7 10 L0 5.5 L-7 10 Z" fill="#D52923" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+        <g transform="translate(216 340) rotate(200)"><path d="M0 -9 L7 10 L0 5.5 L-7 10 Z" fill="#00AEEF" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+        <!-- flagged train: arrow + warning triangle (NOT rotated) -->
+        <g transform="translate(288 392)">
+          <g transform="rotate(168)"><path d="M0 -9 L7 10 L0 5.5 L-7 10 Z" fill="#D52923" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+          <g transform="translate(5 -14)"><path d="M7 .8 L13.8 12.6 L.2 12.6 Z" fill="#FFC2C2" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 4.2 L7 8.4" stroke="#0d1117" stroke-width="1.9" stroke-linecap="round"/><circle cx="7" cy="10.6" r="1.05" fill="#0d1117"/></g>
+        </g>
+        <!-- out-of-service hollow square -->
+        <g transform="translate(336 716)"><rect x="-4.5" y="-4.5" width="9" height="9" rx="1.5" fill="#161c24" stroke="#D52923" stroke-width="2"/></g>
+      </svg>
+    </div>
+
+    <div class="strip">
+      <div class="l1"><span class="dot" aria-hidden="true"></span>
+        <span><b>18</b> in service</span>
+        <span class="statword">live</span>
+        <button class="oostoggle">+51 not in service</button>
+      </div>
+      <div class="l2">updated 7s ago · live GPS positions from Auckland Transport</div>
+    </div>
+
+    <nav class="bar" aria-label="Main actions">
+      <button class="baritem"><span class="ic" aria-hidden="true">◎</span>Near me</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">≡</span>Arrivals</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">◷</span>Plan</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">⋯</span>More</button>
+    </nav>
+  </div>
+  <p class="framecap"><b>A — Map at rest.</b> Status strip is read-only and live-announcing;
+  all controls sit in the 64&nbsp;px thumb bar. Out-of-service stock is off by default below
+  zoom&nbsp;12 and one tap away via the count in the strip. Labels are 11.5&nbsp;px with the
+  existing halo; colliding labels are suppressed, dots retained.</p>
+  </div>
+
+  <!-- ── B. chooser ── -->
+  <div class="framewrap">
+  <div class="phone">
+    <div class="map">
+      <svg viewBox="0 0 390 844" aria-hidden="true">
+        <rect width="390" height="844" fill="#0b1016"/>
+        <path d="M0 150 Q120 120 240 165 T390 140 L390 0 L0 0Z" fill="#0d141c"/>
+        <path d="M60 300 L150 270 L210 250 L260 262 L310 300"
+              stroke="#D52923" stroke-width="3.5" fill="none" opacity=".9"/>
+        <path d="M60 300 L150 270 L210 250 L268 230 L330 224"
+              stroke="#97C93D" stroke-width="3.5" fill="none" opacity=".9"/>
+        <g>
+          <circle class="stdot" cx="200" cy="253" r="3.6"/>
+          <circle class="stdot" cx="212" cy="249" r="3.6"/>
+          <circle class="stdot" cx="150" cy="270" r="3.6"/>
+          <text class="stlabel" x="150" y="260" text-anchor="middle">Maungawhau</text>
+          <text class="stlabel" x="236" y="242" text-anchor="start">Waitemata</text>
+        </g>
+        <g transform="translate(205 251) rotate(100)"><path d="M0 -9 L7 10 L0 5.5 L-7 10 Z" fill="#97C93D" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+      </svg>
+    </div>
+    <div class="tapmark" style="left:186px;top:232px"></div>
+
+    <div class="chooser" style="left:96px;top:286px" role="menu"
+         aria-label="Several things here — which did you mean?">
+      <div class="ch">Which one?</div>
+      <button class="crow" role="menuitem">
+        <span class="lb" style="width:4px;height:26px;border-radius:2px;background:#97C93D"></span>
+        <span class="ci" aria-hidden="true">▲</span>
+        <span><span class="cn">AMP 932 · Manukau</span><br><span class="cs">Eastern / Western</span></span>
+        <span class="cr">7m</span>
+      </button>
+      <button class="crow" role="menuitem">
+        <span class="lb" style="width:4px;height:26px;border-radius:2px;background:#626D7E"></span>
+        <span class="ci" aria-hidden="true">○</span>
+        <span><span class="cn">Te Waihorotiu</span><br><span class="cs">Station</span></span>
+        <span class="cr">board</span>
+      </button>
+      <button class="crow" role="menuitem">
+        <span class="lb" style="width:4px;height:26px;border-radius:2px;background:#626D7E"></span>
+        <span class="ci" aria-hidden="true">○</span>
+        <span><span class="cn">Waitemata</span><br><span class="cs">Station · interchange</span></span>
+        <span class="cr">board</span>
+      </button>
+    </div>
+
+    <div class="strip">
+      <div class="l1"><span class="dot" aria-hidden="true"></span><span><b>18</b> in service</span>
+        <span class="statword">live</span></div>
+      <div class="l2">updated 4s ago · live GPS positions</div>
+    </div>
+    <nav class="bar" aria-label="Main actions">
+      <button class="baritem"><span class="ic" aria-hidden="true">◎</span>Near me</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">≡</span>Arrivals</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">◷</span>Plan</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">⋯</span>More</button>
+    </nav>
+  </div>
+  <p class="framecap"><b>B — The ambiguity chooser (A-01).</b> Measured: 26 of 48 stations have a
+  neighbour closer than 24&nbsp;px and 58&nbsp;% of trains sit within 20&nbsp;px of a station dot,
+  so a silent nearest-wins answer is a coin flip. Two or more candidates in the touch radius
+  &rarr; ask. One candidate &rarr; act immediately, exactly as today. Escape dismisses and does
+  <em>nothing</em> — no fallback guess.</p>
+  </div>
+
+  <!-- ── C. arrivals sheet ── -->
+  <div class="framewrap">
+  <div class="phone">
+    <div class="map"><svg viewBox="0 0 390 844" aria-hidden="true">
+      <rect width="390" height="844" fill="#0b1016"/>
+      <path d="M40 130 L140 110 L220 96 L300 120" stroke="#97C93D" stroke-width="3.5" fill="none" opacity=".85"/>
+      <path d="M220 96 L250 150 L280 220" stroke="#D52923" stroke-width="3.5" fill="none" opacity=".85"/>
+      <circle class="stdot" cx="220" cy="96" r="3.6"/><text class="stlabel" x="234" y="92">Waitemata</text>
+      <circle class="stdot" cx="140" cy="110" r="3.6"/><text class="stlabel" x="140" y="100" text-anchor="middle">Maungawhau</text>
+    </svg></div>
+    <div class="strip">
+      <div class="l1"><span class="dot" aria-hidden="true"></span><span><b>18</b> in service</span>
+        <span class="statword">live</span></div>
+      <div class="l2">updated 7s ago · live GPS positions</div>
+    </div>
+
+    <div class="sheet" role="dialog" aria-modal="false" aria-labelledby="arr-t">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="sheethead">
+        <h2 id="arr-t">Arrivals<span class="sub">Across the network · updated 7s ago</span></h2>
+        <button class="xbtn" aria-label="Close arrivals">✕</button>
+      </div>
+      <div class="sheetbody">
+        <div class="seclabel">In service <span class="cnt">(18)</span></div>
+
+        <button class="row">
+          <span class="lb" style="background:#97C93D"></span>
+          <span class="main"><span class="dest">Manukau</span>
+            <span class="meta">AMP 1114 · Eastern / Western</span></span>
+          <span class="chip chip--sev3" aria-label="Pee train, severity 3, 2 reports">⚠ 2 <span class="pips" aria-hidden="true">●●●</span></span>
+          <span class="eta">7m</span>
+        </button>
+
+        <button class="row">
+          <span class="lb" style="background:#D52923"></span>
+          <span class="main"><span class="dest">Papakura</span>
+            <span class="meta">AMP 0671 · Southern</span></span>
+          <span class="chip chip--people" aria-label="Behaviour reported on this service">☠ live</span>
+          <span class="eta late">12m</span>
+        </button>
+
+        <button class="row">
+          <span class="lb" style="background:#97C93D"></span>
+          <span class="main"><span class="dest">Swanson</span>
+            <span class="meta">AMP 0849 · Eastern / Western</span></span>
+          <span class="chip chip--sev2" aria-label="2 reports, severity 2">⚠ 2 <span class="pips" aria-hidden="true">●●○</span></span>
+          <span class="eta">14m</span>
+        </button>
+
+        <button class="row">
+          <span class="lb" style="background:#00AEEF"></span>
+          <span class="main"><span class="dest">Onehunga</span>
+            <span class="meta">AMP 1087 · Onehunga</span></span>
+          <span class="chip chip--praise" aria-label="Praised by a rider">♥ 1</span>
+          <span class="eta">16m</span>
+        </button>
+
+        <button class="row">
+          <span class="lb" style="background:#D52923"></span>
+          <span class="main"><span class="dest">Pukekohe</span>
+            <span class="meta">AMP 1223 · Southern</span></span>
+          <span></span>
+          <span class="eta">21m</span>
+        </button>
+
+        <button class="seclabel collapsible" aria-expanded="false">
+          Not in service <span class="cnt">(51) — stabled stock &amp; depot moves</span>
+          <span class="chev" aria-hidden="true">▸</span>
+        </button>
+
+        <button class="row oos">
+          <span class="lb" style="background:#626D7E"></span>
+          <span class="main"><span class="dest">AMP 1018</span>
+            <span class="meta">stabled · Puhinui</span></span>
+          <span class="chip chip--oos">No destination</span>
+          <span class="eta">—</span>
+        </button>
+      </div>
+    </div>
+
+    <nav class="bar" aria-label="Main actions">
+      <button class="baritem"><span class="ic" aria-hidden="true">◎</span>Near me</button>
+      <button class="baritem" aria-current="true"><span class="ic" aria-hidden="true">≡</span>Arrivals</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">◷</span>Plan</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">⋯</span>More</button>
+    </nav>
+  </div>
+  <p class="framecap"><b>C — Arrivals sheet (A-11, A-13, A-24).</b> Sheet is anchored
+  <em>above</em> the bar, so nothing renders underneath it. Rows are real 48&nbsp;px buttons with
+  data-built accessible names. Sectioned "In service / Not in service" because off-peak the list
+  measured 1 service against 51 stabled units.</p>
+  </div>
+
+  <!-- ── D. detail sheet ── -->
+  <div class="framewrap">
+  <div class="phone">
+    <div class="map"><svg viewBox="0 0 390 844" aria-hidden="true">
+      <rect width="390" height="844" fill="#0b1016"/>
+      <path d="M40 120 L160 100 L260 130 L320 190" stroke="#97C93D" stroke-width="3.5" fill="none" opacity=".85"/>
+      <circle class="stdot" cx="260" cy="130" r="3.6"/><text class="stlabel" x="274" y="126">Otahuhu</text>
+      <g transform="translate(236 122) rotate(120)"><path d="M0 -9 L7 10 L0 5.5 L-7 10 Z" fill="#97C93D" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+    </svg></div>
+    <div class="strip">
+      <div class="l1"><span class="dot" aria-hidden="true"></span><span><b>18</b> in service</span>
+        <span class="statword">live</span></div>
+      <div class="l2">updated 3s ago · live GPS positions</div>
+    </div>
+
+    <div class="sheet" role="dialog" aria-modal="false" aria-labelledby="det-t">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="sheethead">
+        <h2 id="det-t">Manukau<span class="sub">AMP 1114 · Eastern / Western</span></h2>
+        <button class="xbtn" aria-label="Close train details">✕</button>
+      </div>
+      <div class="sheetbody">
+
+        <div class="dsect" style="display:flex;align-items:flex-end;gap:12px">
+          <div><div class="big">5m</div><div class="micro">arrives Otahuhu</div></div>
+          <div style="margin-left:auto;text-align:right">
+            <span class="chip chip--sev3">PEE TRAIN <span class="pips" aria-hidden="true">●●●</span></span>
+            <div class="micro" style="margin-top:5px">platform 1 · 3 min late</div>
+          </div>
+        </div>
+
+        <div class="dsect">
+          <div class="kv"><span class="k">Run</span><span class="v">Swanson → Manukau</span></div>
+          <div class="kv"><span class="k">Next stop</span><span class="v">Otahuhu</span>
+            <span class="micro">(left Sylvia Park)</span></div>
+          <div class="kv"><span class="k">Speed</span><span class="v">9.5 km/h</span>
+            <span class="micro">Few seats available</span></div>
+          <div class="micro" style="margin-top:6px">position fix 3s ago</div>
+        </div>
+
+        <div class="dsect">
+          <div class="inferline">
+            <button class="whybtn" aria-expanded="true" aria-label="Why we say this is a 6-car">?</button>
+            <div><b>6-car service</b> · front half (cars 1–3) · with set 674
+              <span class="chip chip--inferred sm" style="margin-left:4px">Inferred</span></div>
+          </div>
+          <div class="whytext">We work this out from two sets reporting GPS one set-length apart
+            at matching speed and heading. Auckland Transport doesn’t publish which sets are
+            coupled, so we could be wrong — correct it when you report.</div>
+          <div class="avoidline">⚠ Most reports: <b>Car 2 of 3</b> (3)</div>
+        </div>
+
+        <div class="dsect">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <b style="font-size:15px">Reports (4)</b>
+            <span class="chip chip--praise sm" style="margin-left:auto">1 praise</span>
+          </div>
+
+          <div class="lr">
+            <div class="lh">
+              <span class="chip chip--sev3">Smell <span class="pips" aria-hidden="true">●●●</span></span>
+              <span class="chip chip--unknown sm">Car 2 of 3</span>
+              <span class="when">2026-11-18 08:12</span>
+            </div>
+            <div class="ln">Strong smell near the rear doors, whole carriage.</div>
+            <div class="lv">
+              <span class="q">Still a problem?</span>
+              <button class="vote" aria-pressed="false"
+                      aria-label="Still a problem — 3 people agree">⚠ Still a problem (3)</button>
+              <button class="vote" aria-pressed="false"
+                      aria-label="Fine now — 0 people agree">✓ Fine now (0)</button>
+            </div>
+          </div>
+
+          <div class="lr">
+            <div class="lh">
+              <span class="chip chip--sev2">Smell <span class="pips" aria-hidden="true">●●○</span></span>
+              <span class="chip chip--inferred sm">6-car — half unknown</span>
+              <span class="chip chip--resolved sm">Resolved</span>
+              <span class="when">2026-11-10 17:40</span>
+            </div>
+            <div class="ln">Faint but noticeable about halfway down.</div>
+            <div class="lv">
+              <span class="q">Still a problem?</span>
+              <button class="vote" aria-pressed="false" aria-label="Still a problem — 0 people agree">⚠ Still a problem (0)</button>
+              <button class="vote" aria-pressed="true" aria-label="Fine now — 2 people agree">✓ Fine now (2)</button>
+            </div>
+          </div>
+
+          <div style="margin-top:14px"><button class="btn btn--primary">Report this train</button></div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="bar" aria-label="Main actions">
+      <button class="baritem"><span class="ic" aria-hidden="true">◎</span>Near me</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">≡</span>Arrivals</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">◷</span>Plan</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">⋯</span>More</button>
+    </nav>
+  </div>
+  <p class="framecap"><b>D — Train detail sheet (A-02, A-03, A-20).</b> Replaces the Leaflet popup
+  on phones; desktop keeps the popup. Inference carries a real 24&nbsp;px "?" button with text
+  behind it, never a <code>title</code> attribute. Votes are 44&nbsp;px with visible text that
+  matches their accessible name. A resolved report stays visible with a badge.</p>
+  </div>
+
+  <!-- ── E. departure board ── -->
+  <div class="framewrap">
+  <div class="phone">
+    <div class="map"><svg viewBox="0 0 390 844" aria-hidden="true">
+      <rect width="390" height="844" fill="#0b1016"/>
+      <path d="M40 150 L180 120 L300 160" stroke="#D52923" stroke-width="3.5" fill="none" opacity=".85"/>
+      <circle class="stdot" cx="180" cy="120" r="3.6"/><text class="stlabel" x="194" y="116">Newmarket</text>
+    </svg></div>
+    <div class="strip">
+      <div class="l1"><span class="dot" aria-hidden="true"></span><span><b>18</b> in service</span>
+        <span class="statword">live</span></div>
+      <div class="l2">updated 9s ago · live GPS positions</div>
+    </div>
+
+    <div class="sheet" role="dialog" aria-modal="false" aria-labelledby="brd-t">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="sheethead">
+        <h2 id="brd-t">Newmarket<span class="sub">220 m away · from your location</span></h2>
+        <button class="xbtn" aria-label="Close departure board">✕</button>
+      </div>
+      <div class="sheetbody">
+        <div class="seclabel">Next departures</div>
+
+        <button class="brow">
+          <span class="lb" style="background:#D52923"></span>
+          <span class="btime">23:54</span>
+          <span class="bdest">Papakura</span>
+          <span class="chip chip--sev2">set 849 <span class="pips" aria-hidden="true">●●○</span></span>
+          <span class="bmin">6m</span>
+        </button>
+
+        <button class="brow">
+          <span class="lb" style="background:#97C93D"></span>
+          <span class="btime">23:58</span>
+          <span class="bdest">Swanson</span>
+          <span class="chip chip--praise">set 1087</span>
+          <span class="bmin">10m</span>
+        </button>
+
+        <button class="brow">
+          <span class="lb" style="background:#00AEEF"></span>
+          <span class="btime">00:06</span>
+          <span class="bdest">Onehunga</span>
+          <span class="chip chip--unknown">Set unknown</span>
+          <span class="bmin">18m</span>
+        </button>
+
+        <div class="whytext" style="margin:8px 0 2px">
+          <b>Set unknown</b> — Auckland Transport hasn’t rostered a train to this service yet.
+          We’ll show the set number here as soon as it’s running. This is normal late in the
+          evening, and it isn’t an error.
+        </div>
+
+        <button class="brow">
+          <span class="lb" style="background:#D52923"></span>
+          <span class="btime">00:11</span>
+          <span class="bdest">Pukekohe</span>
+          <span class="chip chip--unknown">Set unknown</span>
+          <span class="bmin">23m</span>
+        </button>
+
+        <button class="brow" style="border-bottom:0">
+          <span class="lb" style="background:#97C93D"></span>
+          <span class="btime">00:24</span>
+          <span class="bdest">Henderson</span>
+          <span class="chip chip--unknown">Set unknown</span>
+          <span class="bmin">36m</span>
+        </button>
+      </div>
+    </div>
+
+    <nav class="bar" aria-label="Main actions">
+      <button class="baritem" aria-current="true"><span class="ic" aria-hidden="true">◎</span>Near me</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">≡</span>Arrivals</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">◷</span>Plan</button>
+      <button class="baritem"><span class="ic" aria-hidden="true">⋯</span>More</button>
+    </nav>
+  </div>
+  <p class="framecap"><b>E — Departure board, reached in one tap from "Near me" (J1, A-16, A-17).</b>
+  Rows are buttons and carry the line colour. "Set unknown" uses the neutral grey chip — never
+  red, because an unrostered train is not an error — and expands to the same sentence the
+  journey planner already uses.</p>
+  </div>
+
+  <!-- ── F. report dialog ── -->
+  <div class="framewrap">
+  <div class="phone">
+    <div class="map"><svg viewBox="0 0 390 844" aria-hidden="true"><rect width="390" height="844" fill="#0b1016"/></svg></div>
+    <div class="backdrop">
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fbtitle">
+        <h2 id="fbtitle" tabindex="-1">Report a train</h2>
+        <div class="hint">Unit AMP 1114 · anonymous · no account, no identity stored.</div>
+
+        <label class="f" for="m-cat">What about it?</label>
+        <select id="m-cat"><option>Smell</option><option>Cleanliness</option>
+          <option>Air conditioning</option><option>Crowding</option><option>Damage</option>
+          <option>Noise</option><option>Ruffians (behaviour)</option><option>Something good</option>
+          <option>Other</option></select>
+
+        <div class="row2">
+          <div><label class="f" for="m-sev">How bad?</label>
+            <select id="m-sev"><option>1 — minor</option><option selected>2 — moderate</option>
+              <option>3 — severe</option></select></div>
+          <div><label class="f" for="m-when">When</label>
+            <input id="m-when" type="date" value="2026-11-19"></div>
+        </div>
+
+        <label class="f" for="m-note">Notes <span style="font-weight:400">42/500</span></label>
+        <textarea id="m-note">Strong smell near the rear doors, whole carriage.</textarea>
+
+        <div class="inferline" style="margin-top:14px">
+          <button class="whybtn" aria-expanded="false" aria-label="Why we think this is a 6-car">?</button>
+          <div>Looks like a <b>6-car service</b> (sets 1114 + 674)
+            <span class="chip chip--inferred sm">Inferred</span><br>
+            <span style="color:var(--fg-2)">We work this out from train positions — correct it if
+            that’s wrong.</span></div>
+        </div>
+
+        <label class="f" id="m-lenlbl">How long was the train?</label>
+        <div class="pick" role="radiogroup" aria-labelledby="m-lenlbl">
+          <button role="radio" aria-checked="false">3 cars<span class="cs">one set</span></button>
+          <button role="radio" aria-checked="true">6 cars<span class="cs">two sets</span></button>
+          <button role="radio" aria-checked="false">Not sure</button>
+        </div>
+
+        <label class="f" id="m-carlbl">Which carriage?
+          <span style="font-weight:400">(helps others avoid it)</span></label>
+        <div class="carpick" role="radiogroup" aria-labelledby="m-carlbl">
+          <button role="radio" aria-checked="false" aria-label="Car 1 of 6"><span class="gx" aria-hidden="true">▲</span><span class="gl">1</span></button>
+          <button role="radio" aria-checked="true"  aria-label="Car 2 of 6"><span class="gx" aria-hidden="true">■</span><span class="gl">2</span></button>
+          <button role="radio" aria-checked="false" aria-label="Car 3 of 6"><span class="gx" aria-hidden="true">■</span><span class="gl">3</span></button>
+          <button role="radio" aria-checked="false" aria-label="Car 4 of 6"><span class="gx" aria-hidden="true">■</span><span class="gl">4</span></button>
+          <button role="radio" aria-checked="false" aria-label="Car 5 of 6"><span class="gx" aria-hidden="true">■</span><span class="gl">5</span></button>
+          <button role="radio" aria-checked="false" aria-label="Car 6 of 6"><span class="gx" aria-hidden="true">▼</span><span class="gl">6</span></button>
+          <button role="radio" aria-checked="false" aria-label="Not sure which carriage"><span class="gx" aria-hidden="true">?</span><span class="gl">–</span></button>
+        </div>
+        <div class="micro" style="margin-top:7px;line-height:1.5">Counting from the front of the
+          whole 6-car train. We know which two sets are coupled, so your carriage is matched to
+          the right one.</div>
+
+        <label class="f" for="m-ref">AT case reference (optional)</label>
+        <input id="m-ref" type="text" placeholder="CAS-PB1H5-S9R4F8">
+
+        <div class="acts">
+          <button class="btn btn--primary">Send report</button>
+          <button class="btn btn--ghost btn--block">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="framecap"><b>F — Report dialog (A-03, A-04, A-18).</b> Real
+  <code>role="dialog" aria-modal="true"</code> with focus moved to the title and returned on
+  close. All fields 48&nbsp;px / 16&nbsp;px type. Seven 48&nbsp;px carriage cells fit 390&nbsp;px
+  without wrapping. Send is a 56&nbsp;px full-width commit; Cancel sits <em>below</em> it, not a
+  thumb-width away. Selected state uses <code>--focus</code>, fixing the undefined
+  <code>var(--red)</code>.</p>
+  </div>
+
+  <!-- ── G. ruffians variant ── -->
+  <div class="framewrap">
+  <div class="phone">
+    <div class="map"><svg viewBox="0 0 390 844" aria-hidden="true"><rect width="390" height="844" fill="#0b1016"/></svg></div>
+    <div class="backdrop">
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fbtitle2">
+        <h2 id="fbtitle2" tabindex="-1">Report a train</h2>
+        <div class="hint">Unit AMP 0671 · anonymous · no account, no identity stored.</div>
+
+        <label class="f" for="m-cat2">What about it?</label>
+        <select id="m-cat2"><option selected>Ruffians (behaviour)</option><option>Smell</option></select>
+
+        <div class="row2">
+          <div><label class="f" for="m-sev2">How bad?</label>
+            <select id="m-sev2"><option>1 — minor</option><option selected>2 — moderate</option><option>3 — severe</option></select></div>
+          <div><label class="f" for="m-when2">When</label><input id="m-when2" type="date" value="2026-11-19"></div>
+        </div>
+
+        <label class="f" for="m-beh">What were they doing?</label>
+        <select id="m-beh"><option>Choose…</option><option selected>Playing music without headphones</option>
+          <option>Loud / shouting</option><option>Aggressive</option><option>Drunk</option>
+          <option>Smoking or vaping</option><option>Feet on seats</option><option>Harassing people</option></select>
+
+        <div class="warnbox">This reports <b>behaviour on a service</b>, not people. There is no
+          free-text box here on purpose. It clears automatically when the train reaches its last
+          stop. <b>If you feel unsafe, contact AT or the Police — not this map.</b></div>
+
+        <div class="acts">
+          <button class="btn btn--primary">Send report</button>
+          <button class="btn btn--ghost btn--block">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="framecap"><b>G — Behaviour report.</b> The closed behaviour list and the absent note
+  box are preserved exactly: they are a safeguard enforced server-side, not a UI convenience.
+  Behaviour reports never produce a fault badge and never reach the journey planner.</p>
+  </div>
+
+</div>
+
+<!-- ════════════════════════ 2. STATES ════════════════════════ -->
+<h2>2. Empty, loading, error and unknown states</h2>
+<p class="note">Every state is designed and worded. "Unknown" is never styled as an error, and an
+unknown value is never replaced by a plausible-looking number.</p>
+
+<div class="frames">
+
+  <div class="statecard">
+    <div class="t">Status strip — four states</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div><div class="l1" style="display:flex;align-items:center;gap:7px;font-size:13.5px">
+        <span class="dot stale"></span><b>Loading…</b><span class="statword">starting up</span></div>
+        <div class="l2" style="color:var(--fg-2);font-size:11.5px">fetching live positions from Auckland Transport</div>
+        <div class="micro" style="margin-top:3px">No age is shown, because we don’t have one.</div></div>
+      <div><div style="display:flex;align-items:center;gap:7px;font-size:13.5px">
+        <span class="dot"></span><b>18</b> in service <span class="statword">live</span></div>
+        <div style="color:var(--fg-2);font-size:11.5px">updated 7s ago · live GPS positions</div></div>
+      <div><div style="display:flex;align-items:center;gap:7px;font-size:13.5px">
+        <span class="dot stale"></span><b>18</b> in service <span class="statword">delayed update</span></div>
+        <div style="color:var(--fg-2);font-size:11.5px">last update 1 min ago — AT may be slow</div></div>
+      <div><div style="display:flex;align-items:center;gap:7px;font-size:13.5px">
+        <span class="dot dead"></span><b>Not updating</b></div>
+        <div style="color:var(--fg-2);font-size:11.5px">last update 4 min ago. Positions shown are old.</div></div>
+    </div>
+  </div>
+
+  <div class="statecard">
+    <div class="t">Arrivals — loading (skeleton)</div>
+    <div aria-busy="true"><div class="skel"></div><div class="skel"></div><div class="skel"></div>
+      <div class="skel"></div><div class="skel"></div></div>
+    <div class="micro" style="margin-top:6px">aria-busy="true"; rows are 48&nbsp;px so nothing
+      shifts when real data lands.</div>
+  </div>
+
+  <div class="statecard">
+    <div class="t">Map — nothing reporting</div>
+    <div class="centred">
+      <div class="h">No trains are reporting right now.</div>
+      <div class="p">This is normal between about 01:00 and 05:00. The map will fill in by itself
+        when services start.</div>
+    </div>
+  </div>
+
+  <div class="statecard">
+    <div class="t">Board — error, with a way out</div>
+    <div class="centred">
+      <div class="h">Couldn’t load departures.</div>
+      <div class="p" style="margin-bottom:14px">Newmarket’s board didn’t answer. The live map
+        is still working.</div>
+      <button class="btn">Try again</button>
+    </div>
+  </div>
+
+  <div class="statecard">
+    <div class="t">Planner — everything unrostered</div>
+    <div class="whytext" style="margin:0 0 10px">
+      <b>Nothing is rostered yet.</b> AT assigns trains to late-evening services closer to
+      departure. We’ll show set numbers here as soon as they appear.</div>
+    <div style="border-top:1px solid var(--rule);padding:10px 0">
+      <div style="font-size:15px"><b>23:54</b> → 00:49
+        <span class="micro">55 min · 17 stops</span></div>
+      <div class="micro">Southern towards Newmarket · in 4 min</div>
+      <div style="margin-top:7px"><span class="chip chip--unknown">Set unknown</span>
+        <span class="micro" style="margin-left:6px">we can’t tell you which set this will be
+          until it’s running</span></div>
+    </div>
+  </div>
+
+  <div class="statecard">
+    <div class="t">Out-of-service unit — absent data stated plainly</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <b style="font-size:17px">AMP 1018</b>
+      <span class="chip chip--oos">Not in service</span></div>
+    <div class="kv"><span class="k">Where</span><span class="v">at Puhinui</span>
+      <span class="micro">120 m</span></div>
+    <div class="kv"><span class="k">Status</span><span class="v">stationary — stabled</span></div>
+    <div class="micro" style="margin-top:8px;line-height:1.5">No destination, ETA or platform:
+      this unit isn’t running a service, so there is nothing to derive them from. We won’t guess.</div>
+  </div>
+
+  <div class="statecard">
+    <div class="t">GPS — declined and far away</div>
+    <div class="whytext" style="margin:0 0 10px">Location permission declined — pick a station
+      below.</div>
+    <div class="whytext" style="margin:0">Closest station is Pukekohe, but it’s 14.2 km away —
+      you may not be near the train network.</div>
+    <div class="micro" style="margin-top:8px">Existing copy, preserved. Permission refusal is a
+      choice, not a fault: no nagging and no repeat prompt.</div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════ 3. DESIGN SYSTEM ════════════════════════ -->
+<h2>3. Colour tokens (measured contrast)</h2>
+<p class="note">Ratios are computed, not estimated. Text needs 4.5:1 (WCAG&nbsp;1.4.3); component
+boundaries and graphical objects need 3:1 (1.4.11).</p>
+
+<h3>Surfaces and boundaries</h3>
+<div class="tok">
+  <div class="tokc"><div class="sw" style="background:#0d1117"></div><code>--bg #0d1117</code><span class="r">map, page</span></div>
+  <div class="tokc"><div class="sw" style="background:#161c24"></div><code>--panel #161c24</code><span class="r">sheets, rail, dialogs</span></div>
+  <div class="tokc"><div class="sw" style="background:#1C232E"></div><code>--panel-2 #1C232E</code><span class="r">raised rows, chooser</span></div>
+  <div class="tokc"><div class="sw" style="background:#0F141B"></div><code>--field #0F141B</code><span class="r">inputs</span></div>
+  <div class="tokc"><div class="sw" style="background:#626D7E"></div><code>--edge #626D7E</code><span class="r">3.27 panel / 3.61 bg / 3.53 field — replaces 1.36:1</span></div>
+  <div class="tokc"><div class="sw" style="background:#2B3440"></div><code>--rule #2B3440</code><span class="r">decorative hairlines only</span></div>
+</div>
+
+<h3>Text and interactive</h3>
+<div class="tok">
+  <div class="tokc"><div class="sw" style="background:#161c24;color:#E6EDF5;display:flex;align-items:center;justify-content:center;font-weight:700">Aa</div><code>--fg #E6EDF5</code><span class="r">14.52 on panel</span></div>
+  <div class="tokc"><div class="sw" style="background:#161c24;color:#9FB0C3;display:flex;align-items:center;justify-content:center;font-weight:700">Aa</div><code>--fg-2 #9FB0C3</code><span class="r">7.73 on panel</span></div>
+  <div class="tokc"><div class="sw" style="background:#161c24;color:#7E8DA0;display:flex;align-items:center;justify-content:center;font-weight:700">Aa</div><code>--fg-3 #7E8DA0</code><span class="r">5.06 on panel</span></div>
+  <div class="tokc"><div class="sw" style="background:#1F5BD7;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700">Aa</div><code>--accent #1F5BD7</code><span class="r">white on it 5.94 (was 3.88)</span></div>
+  <div class="tokc"><div class="sw" style="background:#161c24;outline:3px solid #7FB3FF;outline-offset:-5px"></div><code>--focus #7FB3FF</code><span class="r">7.99 on panel</span></div>
+</div>
+
+<h3>AT line colours — fixed by Auckland Transport, not redesigned</h3>
+<div class="tok">
+  <div class="tokc"><div class="sw" style="background:#D52923"></div><code>S-C #D52923</code><span class="r">3.76 on bg — swatch/line only, never text</span></div>
+  <div class="tokc"><div class="sw" style="background:#97C93D"></div><code>E-W #97C93D</code><span class="r">9.68 on bg</span></div>
+  <div class="tokc"><div class="sw" style="background:#00AEEF"></div><code>O-W #00AEEF</code><span class="r">7.48 on bg</span></div>
+  <div class="tokc"><div class="sw" style="background:#c678dd"></div><code>HUIA #c678dd</code><span class="r">6.43 on bg</span></div>
+</div>
+
+<h3>The certainty vocabulary — one treatment per certainty level</h3>
+<p class="note">Severity carries two channels (colour <em>and</em> pips), so it survives
+sunlight and colour-vision differences — WCAG&nbsp;1.4.1.</p>
+<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);
+            border:1px solid var(--edge);border-radius:var(--r-lg);padding:16px">
+  <span class="chip chip--sev1">Faint pee smell <span class="pips">●○○</span></span>
+  <span class="chip chip--sev2">Suspected pee train <span class="pips">●●○</span></span>
+  <span class="chip chip--sev3">PEE TRAIN <span class="pips">●●●</span></span>
+  <span class="chip chip--reports">2 reports</span>
+  <span class="chip chip--praise">Praised</span>
+  <span class="chip chip--people">☠ Behaviour reported</span>
+  <span class="chip chip--unknown">Set unknown</span>
+  <span class="chip chip--inferred">Inferred ?</span>
+  <span class="chip chip--resolved">Resolved</span>
+  <span class="chip chip--oos">Not in service</span>
+</div>
+
+<h3>Type scale</h3>
+<div style="background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-lg);padding:16px">
+  <div style="font:700 28px/1.1 var(--font);font-variant-numeric:tabular-nums">5m &nbsp;<span style="font-size:12px;color:var(--fg-3);font-weight:400">--t-display 28/700 — the one number that matters</span></div>
+  <div style="font:700 20px/1.25 var(--font);margin-top:10px">Sheet title &nbsp;<span style="font-size:12px;color:var(--fg-3);font-weight:400">--t-h1 20/700</span></div>
+  <div style="font:600 17px/1.3 var(--font);margin-top:8px">Section header &nbsp;<span style="font-size:12px;color:var(--fg-3);font-weight:400">--t-h2 17/600</span></div>
+  <div style="font:400 15px/1.45 var(--font);margin-top:8px">Body — everything a rider reads to make a decision &nbsp;<span style="font-size:12px;color:var(--fg-3)">--t-body 15/400</span></div>
+  <div style="font:400 13px/1.4 var(--font);color:var(--fg-2);margin-top:8px">Supporting detail, "left Sylvia Park" &nbsp;<span style="font-size:12px;color:var(--fg-3)">--t-small 13</span></div>
+  <div style="font:700 12px/1.2 var(--font);margin-top:8px">CHIP TEXT &nbsp;<span style="font-size:12px;color:var(--fg-3);font-weight:400">--t-chip 12/700</span></div>
+  <div style="font:500 11.5px/1.3 var(--font);color:var(--fg-3);margin-top:8px">Timestamps and fix age — the floor. Nothing smaller ships. (was 10px on 48 elements, 10.5px on 206)</div>
+</div>
+
+<!-- ════════════════════════ 4. DESKTOP ════════════════════════ -->
+<h2>4. Desktop — 1280 × 900</h2>
+<p class="note">A 64&nbsp;px bottom bar wastes a precise pointer, so desktop keeps a single
+320&nbsp;px scrolling rail (replacing today’s stacked <code>#hud</code> + <code>#list</code>),
+and the Leaflet popup is retained there.</p>
+
+<div style="overflow:auto">
+<div class="desk">
+  <div class="rail">
+    <h2>Auckland trains — live</h2>
+    <div style="display:flex;align-items:center;gap:7px;margin-top:10px;font-size:15px">
+      <span class="dot"></span><b style="font-size:19px;font-variant-numeric:tabular-nums">18</b>
+      in service <span class="statword">live</span></div>
+    <div style="color:var(--fg-2);font-size:12.5px;margin-top:2px">updated 7s ago · live GPS positions</div>
+
+    <div class="secttl">Lines</div>
+    <label class="legrow"><input type="checkbox" checked>
+      <span class="swatch" style="background:#97C93D"></span>Eastern / Western<span class="n">12</span></label>
+    <label class="legrow"><input type="checkbox" checked>
+      <span class="swatch" style="background:#D52923"></span>Southern / Onehunga loop<span class="n">4</span></label>
+    <label class="legrow"><input type="checkbox" checked>
+      <span class="swatch" style="background:#00AEEF"></span>Onehunga<span class="n">1</span></label>
+    <label class="legrow"><input type="checkbox" checked>
+      <span class="swatch" style="background:#c678dd"></span>Huia<span class="n">1</span></label>
+    <label class="legrow"><input type="checkbox">
+      <span class="swatch" style="background:#626D7E"></span>Not in service<span class="n">51</span></label>
+
+    <div class="secttl">Arrivals</div>
+    <button class="row" style="grid-template-columns:4px 1fr auto 52px">
+      <span class="lb" style="background:#97C93D"></span>
+      <span class="main"><span class="dest">Manukau</span><span class="meta">AMP 1114</span></span>
+      <span class="chip chip--sev3 sm">●●●</span><span class="eta">7m</span></button>
+    <button class="row" style="grid-template-columns:4px 1fr auto 52px">
+      <span class="lb" style="background:#D52923"></span>
+      <span class="main"><span class="dest">Papakura</span><span class="meta">AMP 0671</span></span>
+      <span class="chip chip--people sm">☠</span><span class="eta late">12m</span></button>
+    <button class="row" style="grid-template-columns:4px 1fr auto 52px">
+      <span class="lb" style="background:#00AEEF"></span>
+      <span class="main"><span class="dest">Onehunga</span><span class="meta">AMP 1087</span></span>
+      <span class="chip chip--praise sm">♥</span><span class="eta">16m</span></button>
+
+    <div class="secttl">Most reported units</div>
+    <button class="row" style="grid-template-columns:auto 1fr auto;min-height:44px">
+      <span class="chip chip--sev3">701</span><span class="main"><span class="meta">Smell</span></span><span class="eta" style="font-size:14px">2</span></button>
+    <button class="row" style="grid-template-columns:auto 1fr auto;min-height:44px">
+      <span class="chip chip--sev2">849</span><span class="main"><span class="meta">Smell</span></span><span class="eta" style="font-size:14px">2</span></button>
+
+    <div class="secttl">&nbsp;</div>
+    <button class="btn btn--block" style="margin-bottom:10px">◎ Near me</button>
+    <button class="btn btn--primary">Plan a journey</button>
+
+    <div class="micro" style="margin-top:16px;line-height:1.5">Arrows are trains in service.
+      Hollow squares are units not in service — stabled stock, empty-stock moves and depot
+      shunts, which carry no destination. Anonymous: no account, no identity stored.</div>
+  </div>
+
+  <div class="deskmap">
+    <svg viewBox="0 0 960 900" style="width:100%;height:100%" aria-hidden="true">
+      <rect width="960" height="900" fill="#0b1016"/>
+      <path d="M0 200 Q260 160 520 220 T960 180 L960 0 L0 0Z" fill="#0d141c"/>
+      <path d="M90 420 L240 380 L400 350 L500 380 L600 470 L660 620 L700 790"
+            stroke="#D52923" stroke-width="4" fill="none" opacity=".9"/>
+      <path d="M90 420 L240 380 L400 350 L560 300 L720 290 L840 340"
+            stroke="#97C93D" stroke-width="4" fill="none" opacity=".9"/>
+      <path d="M500 380 L470 500 L440 580" stroke="#00AEEF" stroke-width="4" fill="none" opacity=".9"/>
+      <g>
+        <circle class="stdot" cx="400" cy="350" r="4"/><text class="stlabel" x="400" y="338" text-anchor="middle">Waitemata</text>
+        <circle class="stdot" cx="500" cy="380" r="4"/><text class="stlabel" x="516" y="376">Newmarket</text>
+        <circle class="stdot" cx="240" cy="380" r="4"/><text class="stlabel" x="240" y="368" text-anchor="middle">Maungawhau</text>
+        <circle class="stdot" cx="600" cy="470" r="4"/><text class="stlabel" x="616" y="466">Otahuhu</text>
+        <circle class="stdot" cx="440" cy="580" r="4"/><text class="stlabel" x="440" y="568" text-anchor="middle">Onehunga</text>
+        <circle class="stdot" cx="660" cy="620" r="4"/><text class="stlabel" x="676" y="616">Puhinui</text>
+        <circle class="stdot" cx="700" cy="790" r="4"/><text class="stlabel" x="684" y="786" text-anchor="end">Papakura</text>
+        <circle class="stdot" cx="90"  cy="420" r="4"/><text class="stlabel" x="106" y="416">Swanson</text>
+      </g>
+      <g transform="translate(540 395) rotate(150)"><path d="M0 -10 L8 11 L0 6 L-8 11 Z" fill="#D52923" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+      <g transform="translate(320 364) rotate(285)"><path d="M0 -10 L8 11 L0 6 L-8 11 Z" fill="#97C93D" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+      <g transform="translate(470 520) rotate(200)"><path d="M0 -10 L8 11 L0 6 L-8 11 Z" fill="#00AEEF" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></g>
+    </svg>
+
+    <div class="zoomctl"><button aria-label="Zoom in">+</button><button aria-label="Zoom out">−</button></div>
+
+    <!-- desktop keeps the Leaflet popup -->
+    <div style="position:absolute;left:560px;top:430px;width:300px;background:var(--panel);
+                border:1px solid var(--edge);border-radius:var(--r-lg);padding:14px;
+                box-shadow:0 8px 28px rgba(0,0,0,.6)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <b style="font-size:17px">Manukau</b>
+        <span class="chip chip--sev3">PEE TRAIN <span class="pips" aria-hidden="true">●●●</span></span>
+      </div>
+      <div class="sub" style="margin-top:3px">AMP 1114 · Eastern / Western</div>
+      <div class="sub">Swanson → Manukau</div>
+      <div style="margin-top:9px;font-size:14px"><span style="color:var(--fg-2);font-size:12.5px">next stop</span>
+        <b>Otahuhu</b> <span class="micro">(left Sylvia Park)</span></div>
+      <div style="font-size:14px">arrives <b>5m</b> · platform 1 · 3 min late</div>
+      <div class="micro">9.5 km/h · Few seats · fix 3s ago</div>
+      <div class="inferline" style="margin-top:9px">
+        <button class="whybtn" aria-expanded="false" aria-label="Why we say this is a 6-car">?</button>
+        <div>6-car service · front half (cars 1–3) · with set 674
+          <span class="chip chip--inferred sm">Inferred</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn--sm" style="flex:1">Report this train</button>
+        <button class="btn btn--sm btn--ghost">Reports (4)</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<h2>5. What this mockup deliberately does not change</h2>
+<p class="note">
+AT’s four line colours (fixed by the operator, and all measured compliant) ·
+the dark palette ·
+hollow squares for out-of-service stock, with no destination or ETA ·
+"Not sure" as a first-class carriage answer ·
+the closed behaviour list with no free-text box ·
+praise never rendering as a fault ·
+resolved reports staying visible ·
+the planner’s "we can’t tell you which set this will be until it’s running" sentence ·
+anonymity, with no account and no stored identity ·
+and the single-file, no-build architecture — every style above is a CSS custom property and
+plain CSS, implementable directly in <code>web/index.html</code>.
+</p>
+
+</div>
+</body>
+</html>

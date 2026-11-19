@@ -1,0 +1,28 @@
+# Keep the build context small and secrets out of the image.
+.venv/
+output/
+docs/
+deploy/
+*.md
+.git/
+.env
+
+# Plaintext credentials. The Dockerfile only COPYs src/ and web/, so these
+# never enter the image today — listed explicitly so that stays true if anyone
+# ever changes it to `COPY . .`.
+.atkey
+.flytoken
+.admintoken
+.flyapp
+*.pem
+*.key
+
+# Local tooling with no business in a public image. cr_*.mjs are control-room
+# admin helpers: they reference internal hostnames and the master-key path.
+src/probe*.py
+src/shot*.py
+src/test_*.py
+src/seed_feedback.py
+src/cr_*.mjs
+__pycache__/
+*.pyc
