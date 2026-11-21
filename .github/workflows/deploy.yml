@@ -1,0 +1,147 @@
+# Build, gate, and deploy the Auckland train map.
+#
+# Deploys to the SINGLE existing Fly app (akl-trains). There is deliberately no
+# separate dev app: the Fly account has no card, so a second always-on machine
+# is not free, and this app must never scale to zero (it polls AT every 20s on
+# behalf of every visitor).
+#
+# The gates run BEFORE the deploy step and the job is sequential, so a failing
+# test blocks the ship rather than being reported alongside it. That ordering
+# is the entire point of this file -- every check here has caught a real defect
+# that was invisible in the source.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  # Hand-run from the Actions tab, for redeploying without a code change.
+  workflow_dispatch:
+
+# Serialise deploys. Two overlapping `fly deploy` runs against one machine race
+# for the lease and the loser fails confusingly; `cancel-in-progress: false`
+# because killing a half-finished deploy is worse than queueing behind it.
+concurrency:
+  group: deploy-akl-trains
+  cancel-in-progress: false
+
+jobs:
+  gate-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        # Runtime deps come from requirements.txt; the suites import the app
+        # modules directly, so they need the same set.
+        run: |
+          python -m pip install --quiet --upgrade pip
+          pip install --quiet -r requirements.txt
+
+      - name: Syntax check
+        run: |
+          python -m py_compile \
+            src/server.py src/live.py src/alerts.py \
+            src/feedback.py src/consist_at.py src/board.py
+
+      - name: Static gates
+        # Brace/tag balance, no CJK, no Google-font host in live rules, and the
+        # self-hosted font files present. These are cheap and catch whole
+        # classes of silent breakage in a 100KB single-page file.
+        run: python src/check_static.py
+
+      - name: Asset stamps current
+        # pixel.css is cache-busted by content hash. A stale stamp means a
+        # verified CSS fix stays invisible behind a mobile browser's heuristic
+        # cache -- which has actually happened here. Fails if not regenerated.
+        run: python src/stamp_assets.py --check
+
+      - name: Unit tests
+        run: |
+          python src/test_feedback.py
+          python src/test_consist_at.py
+          python src/test_alerts.py
+
+      - name: Build image locally
+        # Build before touching Fly. A Dockerfile error should fail here, not
+        # halfway through a remote deploy against the live machine.
+        run: docker build -t akl-trains:ci .
+
+      - name: Render suite against the built image
+        # Generated HTML/CSS is valid markup even when it styles nothing and
+        # draws nothing: nothing throws and nothing logs. Only a render proves
+        # it drew.
+        #
+        # AT_API_KEY is REQUIRED here, not optional. Measured without it: the
+        # board renders no live rows and the alert bell never appears, so 8
+        # assertions silently stop testing anything and 3 report FALSE
+        # failures. A gate that degrades quietly when a credential is missing
+        # is worse than no gate -- it reports green over an untested surface.
+        env:
+          AT_API_KEY: ${{ secrets.AT_API_KEY }}
+        run: |
+          test -n "$AT_API_KEY" || { echo "AT_API_KEY missing; the render gate would not be testing the live board"; exit 1; }
+          docker run -d --name akl-ci -e PORT=8080 -e ADMIN_TOKEN=ci \
+            -e AT_API_KEY="$AT_API_KEY" \
+            -e FEEDBACK_DB=/data/feedback.db akl-trains:ci
+          sleep 10
+          docker run -d --name shotci --network container:akl-ci \
+            -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+            mcr.microsoft.com/playwright/python:v1.49.0-jammy sleep 900
+          docker exec shotci sh -c 'pip install -q playwright==1.49.0 pillow'
+          docker exec shotci mkdir -p /out
+          docker cp src/shot_px.py shotci:/s.py
+          docker cp src/shot_ui4.py shotci:/s4.py
+          docker exec shotci python /s.py http://127.0.0.1:8080 /out
+          docker exec shotci python /s4.py http://127.0.0.1:8080 /out
+
+      - name: Collect render screenshots
+        # Uploaded even when the suite fails -- a failed visual run is exactly
+        # when the pictures are worth having.
+        if: always()
+        run: docker cp shotci:/out ./render-output || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-screenshots
+          path: render-output/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Tear down test rig
+        if: always()
+        run: docker rm -f akl-ci shotci || true
+
+      # ---- everything above must pass before anything below runs ----
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --app akl-trains --now --remote-only
+
+      - name: Verify the deploy actually landed
+        # `fly deploy` exiting 0 means the machine started, not that the new
+        # code is being served. Compare the asset stamp in the live HTML
+        # against the one in this commit; a mismatch means we are looking at a
+        # cached or rolled-back build.
+        run: |
+          sleep 15
+          curl -sS -o /dev/null -w 'warm: %{http_code}\n' https://akl-trains.fly.dev/
+          sleep 15
+          LIVE=$(curl -sS https://akl-trains.fly.dev/ \
+                 | grep -o 'pixel.css?v=[a-f0-9]*' | head -1)
+          WANT=$(grep -o 'pixel.css?v=[a-f0-9]*' web/index.html | head -1)
+          echo "live: $LIVE"
+          echo "want: $WANT"
+          test "$LIVE" = "$WANT"
+          curl -sS https://akl-trains.fly.dev/api/trains \
+            | python -c "import json,sys; d=json.load(sys.stdin); \
+                print('trains', d.get('count'), '| error', d.get('error'))"
