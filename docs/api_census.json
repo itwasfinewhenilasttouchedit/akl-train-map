@@ -1,0 +1,803 @@
+{
+ "realtime/vehiclelocations": {
+  "entities": 1515,
+  "fields": {
+   "id": {
+    "nonnull": 1515,
+    "seen": 1515,
+    "sample": "341330000"
+   },
+   "is_deleted": {
+    "nonnull": 1515,
+    "seen": 1515,
+    "sample": false
+   },
+   "vehicle.occupancy_status": {
+    "nonnull": 644,
+    "seen": 644,
+    "sample": 0
+   },
+   "vehicle.position.bearing": {
+    "nonnull": 1154,
+    "seen": 1154,
+    "sample": "260"
+   },
+   "vehicle.position.latitude": {
+    "nonnull": 1515,
+    "seen": 1515,
+    "sample": -35.841253333333334
+   },
+   "vehicle.position.longitude": {
+    "nonnull": 1515,
+    "seen": 1515,
+    "sample": 174.470475
+   },
+   "vehicle.position.odometer": {
+    "nonnull": 37,
+    "seen": 37,
+    "sample": 59548697
+   },
+   "vehicle.position.speed": {
+    "nonnull": 1515,
+    "seen": 1515,
+    "sample": 0
+   },
+   "vehicle.timestamp": {
+    "nonnull": 1515,
+    "seen": 1515,
+    "sample": 1795213999
+   },
+   "vehicle.trip.direction_id": {
+    "nonnull": 653,
+    "seen": 653,
+    "sample": 1
+   },
+   "vehicle.trip.route_id": {
+    "nonnull": 659,
+    "seen": 659,
+    "sample": "MTIA-209"
+   },
+   "vehicle.trip.schedule_relationship": {
+    "nonnull": 659,
+    "seen": 659,
+    "sample": 0
+   },
+   "vehicle.trip.start_date": {
+    "nonnull": 659,
+    "seen": 659,
+    "sample": "20261121"
+   },
+   "vehicle.trip.start_time": {
+    "nonnull": 659,
+    "seen": 659,
+    "sample": "11:00:00"
+   },
+   "vehicle.trip.trip_id": {
+    "nonnull": 659,
+    "seen": 659,
+    "sample": "902-98014-39600-1-2c3cb812"
+   },
+   "vehicle.vehicle.id": {
+    "nonnull": 1515,
+    "seen": 1515,
+    "sample": "341330000"
+   },
+   "vehicle.vehicle.label": {
+    "nonnull": 799,
+    "seen": 1515,
+    "sample": "SeaCat"
+   },
+   "vehicle.vehicle.license_plate": {
+    "nonnull": 737,
+    "seen": 1453,
+    "sample": "ZMQ7552"
+   }
+  }
+ },
+ "realtime/tripupdates": {
+  "entities": 1536,
+  "fields": {
+   "id": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": "521-93021-70200-1-2bf4acc1"
+   },
+   "is_deleted": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": false
+   },
+   "trip_update.delay": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": 0
+   },
+   "trip_update.stop_time_update.arrival.delay": {
+    "nonnull": 1137,
+    "seen": 1137,
+    "sample": 0
+   },
+   "trip_update.stop_time_update.arrival.time": {
+    "nonnull": 1137,
+    "seen": 1137,
+    "sample": 1795233060
+   },
+   "trip_update.stop_time_update.arrival.uncertainty": {
+    "nonnull": 910,
+    "seen": 910,
+    "sample": 0
+   },
+   "trip_update.stop_time_update.departure.delay": {
+    "nonnull": 1002,
+    "seen": 1002,
+    "sample": 0
+   },
+   "trip_update.stop_time_update.departure.time": {
+    "nonnull": 1002,
+    "seen": 1002,
+    "sample": 1795233060
+   },
+   "trip_update.stop_time_update.departure.uncertainty": {
+    "nonnull": 775,
+    "seen": 775,
+    "sample": 0
+   },
+   "trip_update.stop_time_update.schedule_relationship": {
+    "nonnull": 1522,
+    "seen": 1522,
+    "sample": 0
+   },
+   "trip_update.stop_time_update.stop_id": {
+    "nonnull": 1522,
+    "seen": 1522,
+    "sample": "9234-44ebb3c5"
+   },
+   "trip_update.stop_time_update.stop_sequence": {
+    "nonnull": 1522,
+    "seen": 1522,
+    "sample": 1
+   },
+   "trip_update.timestamp": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": 1795143995
+   },
+   "trip_update.trip.direction_id": {
+    "nonnull": 1535,
+    "seen": 1535,
+    "sample": 0
+   },
+   "trip_update.trip.route_id": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": "MTID-241"
+   },
+   "trip_update.trip.schedule_relationship": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": 3
+   },
+   "trip_update.trip.start_date": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": "20261121"
+   },
+   "trip_update.trip.start_time": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": "19:30:00"
+   },
+   "trip_update.trip.trip_id": {
+    "nonnull": 1536,
+    "seen": 1536,
+    "sample": "521-93021-70200-1-2bf4acc1"
+   },
+   "trip_update.vehicle.id": {
+    "nonnull": 1522,
+    "seen": 1522,
+    "sample": "59390"
+   },
+   "trip_update.vehicle.label": {
+    "nonnull": 1522,
+    "seen": 1522,
+    "sample": "AMP        390"
+   },
+   "trip_update.vehicle.license_plate": {
+    "nonnull": 1208,
+    "seen": 1246,
+    "sample": "RPL14"
+   }
+  }
+ },
+ "realtime/servicealerts": {
+  "entities": 161,
+  "fields": {
+   "alert.active_period[].end": {
+    "nonnull": 158,
+    "seen": 161,
+    "sample": 1806404340
+   },
+   "alert.active_period[].start": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": 1795258800
+   },
+   "alert.cause": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "CONSTRUCTION"
+   },
+   "alert.description_text.translation[].language": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "en"
+   },
+   "alert.description_text.translation[].text": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "There are roadworks on Robertson Road in M\u0101ngere from Thursday 25 November to Tuesday 30 March 2027, at all times.\nBuses will not stop at:\n\u2022 Stop 6503 - Jacueline Place: a temporary bus stop has been set up at 257 Roberston Road\n\u2022 Stop 2395 - Ashley Avenue: a temporary bus stop has been set up at 207 Roberston Road\nUse Journey Planner to find other stops nearby."
+   },
+   "alert.effect": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "STOP_MOVED"
+   },
+   "alert.effect_detail.translation[].language": {
+    "nonnull": 146,
+    "seen": 146,
+    "sample": "en"
+   },
+   "alert.effect_detail.translation[].text": {
+    "nonnull": 146,
+    "seen": 146,
+    "sample": "Bus stop moved"
+   },
+   "alert.header_text.translation[].language": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "en"
+   },
+   "alert.header_text.translation[].text": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "Stops moved: Route 313 and S041 - Robertson Road, M\u0101ngere"
+   },
+   "alert.informed_entity[].direction_id": {
+    "nonnull": 7,
+    "seen": 7,
+    "sample": 0
+   },
+   "alert.informed_entity[].route_id": {
+    "nonnull": 131,
+    "seen": 131,
+    "sample": "313-203"
+   },
+   "alert.informed_entity[].stop_id": {
+    "nonnull": 123,
+    "seen": 123,
+    "sample": "6503-8f7b1c19"
+   },
+   "alert.informed_entity[].trip.trip_id": {
+    "nonnull": 15,
+    "seen": 15,
+    "sample": "521-93021-62100-1-2bf4acc1"
+   },
+   "alert.severity_level": {
+    "nonnull": 146,
+    "seen": 146,
+    "sample": "WARNING"
+   },
+   "id": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "07b6e5ac-acc9-42a5-9126-bcfb705891a9"
+   },
+   "timestamp": {
+    "nonnull": 161,
+    "seen": 161,
+    "sample": "1795214154"
+   }
+  }
+ },
+ "serviceinfo/vehicles/byTripId": {
+  "entities": 15,
+  "fields": {
+   "n_units": {
+    "nonnull": 15,
+    "seen": 15,
+    "sample": 1
+   },
+   "trip": {
+    "nonnull": 15,
+    "seen": 15,
+    "sample": "258-880002-40980-2-W069580-7c08d35b"
+   },
+   "units[]": {
+    "nonnull": 15,
+    "seen": 15,
+    "sample": "AMP        511"
+   }
+  }
+ },
+ "serviceinfo/departures": {
+  "entities": 4,
+  "fields": {
+   "extensions[]": {
+    "nonnull": 0,
+    "seen": 3,
+    "sample": null
+   },
+   "extensions[].priority": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "high"
+   },
+   "extensions[].text": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "Due to an onboard medical emergency, there may be delays & cancellations affecting South City line trains. Please refer to electronic display boards and listen to announcements for your next available service.\n"
+   },
+   "movements[]": {
+    "nonnull": 0,
+    "seen": 3,
+    "sample": null
+   },
+   "movements[].arrivalBoardingActivity": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "alighting"
+   },
+   "movements[].arrivalPlatformName": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2"
+   },
+   "movements[].arrivalStatus": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "noReport"
+   },
+   "movements[].departureBoardingActivity": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "boarding"
+   },
+   "movements[].departurePlatformName": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2"
+   },
+   "movements[].destinationDisplay": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "Swanson"
+   },
+   "movements[].expectedArrivalTime": {
+    "nonnull": 0,
+    "seen": 1,
+    "sample": null
+   },
+   "movements[].expectedDepartureTime": {
+    "nonnull": 0,
+    "seen": 1,
+    "sample": null
+   },
+   "movements[].inCongestion": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": false
+   },
+   "movements[].monitored": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": false
+   },
+   "movements[].onHold": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": false
+   },
+   "movements[].route_short_name": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "E-W"
+   },
+   "movements[].scheduledArrivalTime": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2026-11-21T00:33:00.000Z"
+   },
+   "movements[].scheduledDepartureTime": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2026-11-21T00:33:00.000Z"
+   },
+   "movements[].stopDisplay": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": true
+   },
+   "movements[].stopSequence": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": 18
+   },
+   "movements[].stop_code": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "9311"
+   },
+   "movements[].timestamp": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2026-11-20T22:35:57.072Z"
+   },
+   "movements[].vehicleJourneyName": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "258880001451802W104560c2a2fee3123300"
+   }
+  }
+ },
+ "serviceinfo/arrivals": {
+  "entities": 4,
+  "fields": {
+   "extensions[].priority": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "high"
+   },
+   "extensions[].text": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "Due to an onboard medical emergency, there may be delays & cancellations affecting South City line trains. Please refer to electronic display boards and listen to announcements for your next available service.\n"
+   },
+   "movements[].arrivalBoardingActivity": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "alighting"
+   },
+   "movements[].arrivalPlatformName": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2"
+   },
+   "movements[].arrivalStatus": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "noReport"
+   },
+   "movements[].departureBoardingActivity": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "boarding"
+   },
+   "movements[].departurePlatformName": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2"
+   },
+   "movements[].destinationDisplay": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "Swanson"
+   },
+   "movements[].expectedArrivalTime": {
+    "nonnull": 0,
+    "seen": 1,
+    "sample": null
+   },
+   "movements[].expectedDepartureTime": {
+    "nonnull": 0,
+    "seen": 1,
+    "sample": null
+   },
+   "movements[].inCongestion": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": false
+   },
+   "movements[].monitored": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": false
+   },
+   "movements[].onHold": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": false
+   },
+   "movements[].route_short_name": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "E-W"
+   },
+   "movements[].scheduledArrivalTime": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2026-11-21T00:33:00.000Z"
+   },
+   "movements[].scheduledDepartureTime": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2026-11-21T00:33:00.000Z"
+   },
+   "movements[].stopDisplay": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": true
+   },
+   "movements[].stopSequence": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": 18
+   },
+   "movements[].stop_code": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "9311"
+   },
+   "movements[].timestamp": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "2026-11-20T22:35:57.701Z"
+   },
+   "movements[].vehicleJourneyName": {
+    "nonnull": 1,
+    "seen": 1,
+    "sample": "258880001451802W104560c2a2fee3123300"
+   }
+  }
+ },
+ "_authkey": {
+  "gtfs/legacy/stops": "jp",
+  "gtfs/legacy/agency": "jp",
+  "gtfs/legacy/stopTimes/tripId/258-880002-40980-2-W069580-7c08d35b": "jp",
+  "gtfs/legacy/shapes/tripId/258-880002-40980-2-W069580-7c08d35b": "jp"
+ },
+ "gtfs/legacy/stops": {
+  "entities": 80,
+  "fields": {
+   "direction": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "end_date": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": "2027-02-07"
+   },
+   "location_type": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": 1
+   },
+   "parent_station": {
+    "nonnull": 9,
+    "seen": 80,
+    "sample": "31986-b1e95b83"
+   },
+   "platform_code": {
+    "nonnull": 9,
+    "seen": 80,
+    "sample": "A"
+   },
+   "position": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "start_date": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": "2026-11-12"
+   },
+   "stop_city": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "stop_code": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": "100"
+   },
+   "stop_country": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "stop_desc": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "stop_id": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": "100-56c57897"
+   },
+   "stop_lat": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": -36.97766
+   },
+   "stop_lon": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": 174.84925
+   },
+   "stop_name": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": "Papatoetoe Train Station"
+   },
+   "stop_postcode": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "stop_region": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "stop_street": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "stop_timezone": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "stop_url": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   },
+   "wheelchair_boarding": {
+    "nonnull": 80,
+    "seen": 80,
+    "sample": 0
+   },
+   "zone_id": {
+    "nonnull": 0,
+    "seen": 80,
+    "sample": null
+   }
+  }
+ },
+ "gtfs/legacy/agency": {
+  "entities": 17,
+  "fields": {
+   "agency_email": {
+    "nonnull": 0,
+    "seen": 17,
+    "sample": null
+   },
+   "agency_fare_url": {
+    "nonnull": 0,
+    "seen": 17,
+    "sample": null
+   },
+   "agency_id": {
+    "nonnull": 17,
+    "seen": 17,
+    "sample": "AM"
+   },
+   "agency_lang": {
+    "nonnull": 17,
+    "seen": 17,
+    "sample": "en"
+   },
+   "agency_name": {
+    "nonnull": 17,
+    "seen": 17,
+    "sample": "AT Metro"
+   },
+   "agency_phone": {
+    "nonnull": 17,
+    "seen": 17,
+    "sample": "(09)355-3553"
+   },
+   "agency_timezone": {
+    "nonnull": 17,
+    "seen": 17,
+    "sample": "Pacific/Auckland"
+   },
+   "agency_url": {
+    "nonnull": 17,
+    "seen": 17,
+    "sample": "http://www.aucklandtransport.govt.nz"
+   }
+  }
+ },
+ "gtfs/legacy/stopTimes/tripId": {
+  "entities": 27,
+  "fields": {
+   "arrival_time": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": "11:23:00"
+   },
+   "departure_time": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": "11:23:00"
+   },
+   "drop_off_type": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": 0
+   },
+   "pickup_type": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": 0
+   },
+   "shape_dist_traveled": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": 0
+   },
+   "stop_headsign": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": "Manukau via City Centre"
+   },
+   "stop_id": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": "9328-f6f84eac"
+   },
+   "stop_sequence": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": 1
+   },
+   "timepoint": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": 0
+   },
+   "trip_id": {
+    "nonnull": 27,
+    "seen": 27,
+    "sample": "258-880002-40980-2-W069580-7c08d35b"
+   }
+  }
+ },
+ "gtfs/legacy/shapes/tripId": {
+  "entities": 5,
+  "fields": {
+   "shape_dist_traveled": {
+    "nonnull": 5,
+    "seen": 5,
+    "sample": 0
+   },
+   "shape_id": {
+    "nonnull": 5,
+    "seen": 5,
+    "sample": "258-880002-bf21076d"
+   },
+   "shape_pt_lat": {
+    "nonnull": 5,
+    "seen": 5,
+    "sample": -36.86618
+   },
+   "shape_pt_lon": {
+    "nonnull": 5,
+    "seen": 5,
+    "sample": 174.5763
+   },
+   "shape_pt_sequence": {
+    "nonnull": 5,
+    "seen": 5,
+    "sample": 1
+   }
+  }
+ }
+}

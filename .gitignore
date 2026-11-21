@@ -52,3 +52,15 @@ _*.html
 src/probe*.py
 src/shot*.py
 src/seed_feedback.py
+
+# Licensed third-party art — "Train Station Tileset" by Pixels On Ultra.
+# The licence permits use and editing but FORBIDS redistribution ("edited or
+# not") and explicitly says to keep the assets out of a public repository when
+# the project is open source. This repo is public. These paths are belt-and-
+# braces alongside the broader output/ rule above, which must not be narrowed
+# without re-checking this.
+output/tileset_peek/
+web/tileset/
+assets/tileset/
+Train_Station_Tileset*/
+*Train_Station_Tileset*.zip

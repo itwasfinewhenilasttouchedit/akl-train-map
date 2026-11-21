@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Auckland Live Train Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<!-- DENSHA pixel skin. Scoped to body.pixel, so loading it costs nothing
+     visually until the rider opts in. See web/pixel.css for the design notes. -->
+<!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
+     An etag only helps if the browser bothers to revalidate; mobile
+     Safari often will not. A changed URL cannot be served from cache. -->
+<link rel="stylesheet" href="/static/pixel.css?v=e8914bea4c">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="anonymous">
@@ -156,15 +162,11 @@
   #jp select { width:100%; box-sizing:border-box; background:#0f141b; color:var(--fg);
                border:1px solid var(--line); border-radius:7px; padding:6px 8px;
                font:inherit; font-size:12.5px; }
-  /* Shown on every width. On desktop the arrivals list occupies the lower
-     left, so the pill sits bottom-CENTRE where nothing else lives; the phone
-     media query moves it next to the Arrivals pill. */
-  #planbtn { display:block; position:absolute; z-index:650; bottom:12px;
-             left:50%; transform:translateX(-50%);
-             background:var(--panel); color:var(--fg);
-             border:1px solid var(--edge); border-radius:999px;
-             min-height:52px; padding:0 20px; font:inherit; font-size:15px; cursor:pointer;
-             box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  /* Plan now lives inside #favbar with the two favourite pills, so it is laid
+     out by that flex row rather than positioned on its own. Visual styling is
+     shared with .favbtn further down. On desktop #favbar is a centred row at
+     the bottom; the arrivals list occupies the lower left and does not clash. */
+  #favbar { display:flex; }
   .jd { border-top:1px solid var(--line); padding:9px 0; }
   .jt { font-size:13.5px; }
   .jrisk { margin-top:5px; border-radius:6px; padding:5px 7px; font-size:11.5px;
@@ -196,6 +198,14 @@
   #carpick .car:hover { border-color:#3b4654; }
   #carpick .car.on { background:#1d2836; border-color:var(--red); color:var(--fg); }
   #carpick .cx { font-size:14px; line-height:1; }
+  /* Carriage artwork. Scales with the button so a 6-car row still fits a
+     390px phone; the SVG keeps its aspect ratio via viewBox. */
+  #carpick .carart { width:100%; height:auto; max-width:46px; display:block; }
+  #carpick.six .carart { max-width:34px; }
+  /* "Not sure" has no artwork, so it needs a matching block of height or the
+     row goes ragged — a shorter button reads as a lesser answer, and it is
+     not: it is excluded from the worst-car maths rather than guessed at. */
+  #carpick .nosure .cx { font-size:16px; line-height:22px; display:block; }
   #carpick .cl { font-size:12px; font-weight:700; }
   #carpick .cs { font-size:11.5px; opacity:.75; }
   #carnote { color:var(--muted); font-size:12px; line-height:1.4; margin-top:4px; }
@@ -228,14 +238,36 @@
      and the dots speak for themselves. The Hamilton-line stations stretch the
      network to 105 km, so zooming out far enough to see it all is a legitimate
      thing to do — it just can't carry 48 labels. */
+  /* Tiered visibility. Hiding is done with display:none rather than opacity
+     so hidden labels cost no layout and cannot intercept anything. */
   .lowzoom .stname { display:none; }
+  .z-major .stname.t2, .z-major .stname.t3 { display:none; }
+  .z-mid   .stname.t3 { display:none; }
+  /* Set by declutter(). Separate from the zoom-tier rules so the two
+     mechanisms never fight: the tier decides eligibility, this decides who
+     actually fits. visibility rather than display, so the element keeps its
+     box and the next declutter pass can still measure it. */
+  .stname.hidelabel { visibility:hidden; }
+  /* Majors read slightly stronger than the rest, so the hierarchy survives
+     even at zoom 13 where every label is on. */
+  .stname.t1 { font-size:12.5px; }
+  .stname.t3 { font-size:11px; opacity:.92; }
   /* Departure board rows. Grid rather than flex so the times align down the
      column — a board where the numbers wander is harder to scan than a list. */
-  .brow { display:grid; grid-template-columns:46px 1fr auto 38px; gap:8px;
+  /* Scheduled time gets its OWN column rather than sitting inside .btime.
+     Measured: nesting it made the time cell 54px tall and the row 67px
+     instead of 40px, because "(sched 11:02)" wrapped under the live time.
+     A fixed 50px column keeps every row 40px and lines the scheduled times
+     up with each other down the board, which is the point of a grid here. */
+  .brow { display:grid; grid-template-columns:46px 50px 1fr auto 38px; gap:8px;
           align-items:center; padding:6px 2px;
           border-bottom:1px solid #1e2631; font-size:12px; }
   .brow:last-child { border-bottom:0; }
-  .btime { font-weight:700; color:#e6edf3; }
+  .btime { font-weight:700; color:#e6edf3; white-space:nowrap; }
+  /* Reserved even when empty, so times stay in column. nowrap is the whole
+     fix: this text must never break, it must be allowed to be absent. */
+  .bsched { white-space:nowrap; font-size:11px; color:#8893a5;
+            font-variant-numeric:tabular-nums; }
   /* A tracked departure gets a small green pulse. Reduced-motion users get the
      dot without the animation — the colour still carries the meaning. */
   .livedot { display:inline-block; width:7px; height:7px; border-radius:50%;
@@ -246,6 +278,9 @@
   .bdest { color:#c3ccd8; overflow:hidden; text-overflow:ellipsis;
            white-space:nowrap; }
   .bmin { text-align:right; color:#8893a5; font-size:11px; }
+  /* The no-set dash sits in the set-chip column; centre it there so the
+     column keeps its rhythm instead of the dash drifting left. */
+  .noset { display:inline-block; min-width:62px; text-align:center; }
   .wmini.rowdy { color:#e8edf4; }
   /* Live people report on a popup. Slate, not fault-red: this is about the
      service right now, not a defect in the vehicle. */
@@ -272,10 +307,22 @@
   .lh .when { color:var(--muted); font-size:11.5px; margin-left:auto; }
   .ln { font-size:11.5px; margin:3px 0; line-height:1.4; }
   .lv { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:12px; }
-  .vote { background:#0f141b; color:var(--fg); border:1px solid var(--edge);
-          border-radius:999px; min-height:44px; padding:10px 14px; font:inherit; font-size:13px;
-          cursor:pointer; }
-  .vote.on { border-color:var(--red); background:#1d2836; }
+  /* Up/down vote, not thumbs. The thumb glyphs were REVERSED against their
+     own data-v values (thumbs-down sat on "still a problem"), so anyone
+     voting by icon was inverting the signal. Arrows carry no handedness or
+     cultural baggage and pair naturally with a count, so the control now
+     reads as one segmented vote rather than two loose buttons. */
+  .votes { display:inline-flex; border:1px solid var(--edge); border-radius:7px;
+           overflow:hidden; margin-left:auto; }
+  .vote { background:#0f141b; color:var(--muted); border:0; font:inherit;
+          min-width:44px; min-height:32px; padding:0 9px; cursor:pointer;
+          display:inline-flex; align-items:center; gap:5px; font-size:12px;
+          font-variant-numeric:tabular-nums; }
+  .vote + .vote { border-left:1px solid var(--line); }
+  .vote .varr { font-size:10px; line-height:1; }
+  .vote:hover:not(:disabled) { background:#18212c; color:var(--fg); }
+  .vote.up.on   { background:#2a1a1c; color:#ff9b9b; }
+  .vote.down.on { background:#15241c; color:#86e0a6; }
   .vote:disabled { opacity:.5; cursor:default; }
   .stale { display:inline-block; border-radius:5px; padding:1px 5px;
            font-size:12px; background:#2a2f38; color:#9aa7b4; }
@@ -292,11 +339,40 @@
            transition:opacity .18s; box-shadow:0 6px 20px rgba(0,0,0,.5); }
   #toast.on { opacity:1; }
 
-  #sheetbtn { display:none; position:absolute; z-index:650; bottom:12px;
-              left:50%; transform:translateX(-50%); background:var(--panel);
+    /* Favourite-station pills. Three controls now share the bottom bar (Home,
+     Away, Plan), so they are laid out in a flex row instead of each being
+     absolutely positioned — the previous approach needed a hand-guessed
+     offset per button and an earlier guess overlapped two of them by 18px. */
+  /* #skinbtn is position:fixed bottom-right (pixel.css) and floats ABOVE this
+     row, so the bar stops short of it rather than running underneath — a
+     screenshot caught the Plan pill hidden behind the PIXEL toggle. ~86px
+     covers the wider "PIXEL ON" label plus its 8px inset. */
+  #favbar { position:absolute; z-index:650; bottom:12px;
+            left:8px; right:94px; gap:8px; justify-content:center; }
+  .favbtn, #planbtn { background:var(--panel);
               color:var(--fg); border:1px solid var(--edge); border-radius:999px;
-              min-height:52px; padding:0 20px; font:inherit; font-size:15px; cursor:pointer;
-              box-shadow:0 6px 20px rgba(0,0,0,.5); }
+              min-height:52px; padding:0 12px; font:inherit; font-size:15px;
+              cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.5);
+              white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+              display:inline-flex; align-items:center; justify-content:center;
+              gap:5px; }
+  /* Plan is a fixed-width icon button: its label is one glyph plus a short
+     word, so it must not take a share of the row the station names need. */
+  #planbtn { flex:0 0 auto; }
+  /* The two station pills split what is left. Measured at 390px: the row has
+     ~288px of usable width after the PIXEL toggle and gaps, so each pill gets
+     ~100px — enough for "Home Waitemata" to ellipsis at the STATION rather
+     than swallowing the label. The label must always survive; it is the part
+     that says which button this is. */
+  .favbtn { flex:1 1 0; min-width:0; }
+  .favbtn .favlabel { flex:0 0 auto; }
+  .favbtn .favstn { overflow:hidden; text-overflow:ellipsis;
+                    white-space:nowrap; min-width:0; }
+  /* An unset slot is an invitation, not a destination — dashed, dimmer. */
+  .favbtn.unset { border-style:dashed; color:var(--dim); }
+  /* Long-press / right-click relabels. Hint it without shouting. */
+  .favbtn .favlabel { font-weight:700; }
+  .favbtn .favstn { opacity:.78; font-size:13px; }
   /* Phone. The panel used to eat 57% of a 390x844 screen; now it collapses to
      a single line and the arrivals list becomes an opt-in bottom sheet. */
   @media (max-width:640px){
@@ -313,9 +389,6 @@
     /* Both pills share the bottom bar. Widths vary with the label, so they are
        anchored to opposite sides of centre with a gap rather than nudged by a
        guessed offset — an earlier guess overlapped them by 18px. */
-    #sheetbtn { display:block; left:auto; right:calc(50% + 5px);
-                transform:none; }
-    #planbtn  { display:block; left:calc(50% + 5px); transform:none; }
     #fb, #jp { width:auto; margin:0 10px; }
   }
 
@@ -362,10 +435,190 @@
   /* In a dense board row the tag must not force the row taller; the row itself
      is already over 44px, so the padded hit area is enough. */
   .brow .setlink { min-height:0; padding:4px 8px; }
+
+  /* --- train diagram in the popup -------------------------------------
+     Carriages drawn in direction of travel, fault shaded onto the car it
+     was reported against. Replaces making the rider translate a sentence
+     ("Most reports: Car 2 of 3") into a position while a train arrives. */
+  .tdiag { margin:7px 0 2px; }
+  .dcars { display:flex; gap:3px; align-items:flex-end; }
+  .dcar { position:relative; flex:1; min-width:0; line-height:0;
+          border-radius:4px; padding:2px 1px 0; background:transparent; }
+  .dcar svg { width:100%; height:auto; display:block; }
+  /* The coupled set's cars: present for orientation, but not ours to judge. */
+  .dcar.other { opacity:.42; }
+  .dcar.bad.lvl1 { background:rgba(213,41,35,.17); }
+  .dcar.bad.lvl2 { background:rgba(213,41,35,.34); }
+  .dnum { position:absolute; left:50%; transform:translateX(-50%);
+          bottom:-13px; font-size:9px; line-height:1; color:var(--muted);
+          font-variant-numeric:tabular-nums; }
+  /* NB: --red is a lie in this stylesheet — the token pass remapped it to
+     #7FB3FF (a blue), so white on it measured 2.14:1, a WCAG failure. The
+     fault palette is the hardcoded severity set (.pee.p1/p2/p3). Measured:
+     #fff on #9e2b26 = 7.43:1. */
+  .dflag { position:absolute; top:-3px; right:-1px; background:#9e2b26;
+           color:#fff; font-size:9px; line-height:1; font-weight:700;
+           border-radius:6px; padding:2px 4px; min-width:12px;
+           text-align:center; }
+  .dlegend { display:flex; flex-wrap:wrap; gap:4px 9px; margin-top:16px;
+             font-size:10.5px; color:var(--muted); align-items:center; }
+  .dfront { color:var(--edge); }
+  .dkey { display:inline-flex; align-items:center; gap:4px; }
+  .dkey .sw { width:9px; height:9px; border-radius:2px;
+              background:rgba(213,41,35,.34); display:inline-block; }
+/* ---- service alerts: nav bell + drawer ---------------------------------
+   The first cut was a banner: measured 215px tall, 23.9% of a 390x844 phone
+   viewport, overlapping the HUD. On a map product a notice board must not
+   outrank the map. Now a 44px bell in the top strip with a count, and a
+   drawer the rider opens deliberately.
+   Contrast computed from resolved hex (never from a token name — `--red` in
+   this file is #7FB3FF, a blue):
+     severe bell  #fff    on #9e2b26 = 7.43
+     warning bell #1b1b1b on #d9a21b = 7.49
+     drawer body  #cfd8e3 on #232c38 = 9.80 */
+#alertbell {
+  /* Desktop: to the right of the HUD, which measures x=12..302.
+     Phone override is in the media query below — the HUD goes full-width
+     (x=8..382) there, so the bell cannot share its row. */
+  position:absolute; z-index:650; top:12px; left:318px;
+  width:44px; height:44px; padding:0;
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid rgba(255,255,255,.22); border-radius:10px;
+  background:#232c38; color:#e8edf2; cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.4); font-size:18px; line-height:1;
+}
+#alertbell[hidden] { display:none; }
+#alertbell.sev-severe  { background:#9e2b26; color:#fff; }
+#alertbell.sev-warning { background:#d9a21b; color:#1b1b1b; }
+#alertbell:focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+/* The count sits as a corner badge rather than beside the glyph, so the
+   control stays square and the 44px target is not spent on text. */
+#alertbell .acount {
+  position:absolute; top:-5px; right:-5px; min-width:18px; height:18px;
+  border-radius:9px; background:#fff; color:#9e2b26;
+  font-size:11px; font-weight:800; line-height:18px; text-align:center;
+  border:1.5px solid #9e2b26; padding:0 3px;
+}
+#alertbell.sev-warning .acount { background:#1b1b1b; color:#d9a21b; border-color:#1b1b1b; }
+/* Screen-reader-only text. The bell announces a COUNT; the prose lives in the
+   drawer, so a poll does not read three paragraphs of night works aloud. */
+.sr {
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
+#alertdrawer {
+  position:absolute; z-index:649; top:62px; left:50%;
+  transform:translateX(-50%);
+  width:min(520px, calc(100vw - 24px));
+  max-height:min(46vh, 420px); overflow-y:auto;
+  display:flex; flex-direction:column; gap:6px;
+  font-size:12px; line-height:1.35;
+}
+#alertdrawer[hidden] { display:none; }
+/* Phone: the HUD is full-width, so the bell tucks under its right edge and
+   the drawer starts below it. Checked against the measured HUD height of
+   111px at 390x844. */
+@media (max-width:560px) {
+  #alertbell { top:auto; left:auto; right:10px; top:122px; }
+  #alertdrawer { top:174px; }
+}
+.alert {
+  border-radius:8px; padding:8px 10px; border:1px solid rgba(0,0,0,.25);
+  box-shadow:0 2px 10px rgba(0,0,0,.35);
+}
+.alert .ahead { font-weight:700; display:block; }
+.alert .adesc { margin-top:3px; display:block; opacity:.95; }
+.alert .awhen { margin-top:4px; display:block; font-size:11px; opacity:.85; }
+/* Dismiss control. Floated right so the header text wraps around it rather
+   than under it. 44px wide keeps the touch target even though the glyph is
+   small (WCAG 2.5.8 asks 24, the project has used 44 for dismissals). */
+.alert .ax {
+  float:right; width:44px; height:28px; margin:-2px -4px 0 4px;
+  background:transparent; border:0; color:inherit; opacity:.8;
+  font-size:17px; line-height:28px; cursor:pointer;
+}
+.alert .ax:hover { opacity:1; }
+.alert .ax:focus-visible { outline:2px solid currentColor; outline-offset:1px; }
+.alert.sev-severe  { background:#9e2b26; color:#fff; }
+.alert.sev-warning { background:#d9a21b; color:#1b1b1b; }
+.alert.sev-info,
+.alert.upcoming    { background:#232c38; color:#cfd8e3; }
+/* Cancelled departure rows. The row class is `brow` (not `dep` — an earlier
+   version of this rule guessed `.dep` and silently styled nothing, which the
+   render test caught). Strike-through alone is not a signal, since it reads as
+   styling and is invisible to a screen reader; the word CANCELLED carries the
+   meaning and the line-through is reinforcement only. */
+.brow.cancelled { opacity:.75; }
+.brow.cancelled .dtime { text-decoration:line-through; }
+.cx {
+  display:inline-block; background:#9e2b26; color:#fff; border-radius:4px;
+  padding:1px 6px; font-size:11px; font-weight:700; letter-spacing:.04em;
+}
+
 </style>
+<!-- Resolve the skin BEFORE first paint — see the note after <body> below.
+     Sets only the page ground on <html>, which is the one surface that paints
+     before any markup exists and therefore the one that can flash. -->
+<script>
+  (function () {
+    var on = true;
+    try { on = localStorage.getItem('pixelSkin') !== '0'; } catch (e) {}
+    // <body> does not exist yet at this point, so this cannot set body.pixel.
+    // It only pre-paints the page ground; the real class is applied by the
+    // script immediately inside <body>, before any visible element parses.
+    if (on) document.documentElement.style.background = '#fcfcf9';
+  })();
+</script>
 </head>
 <body>
+<!-- Apply the skin class before a single visible element has parsed.
+     The toggle's own IIFE lives at the bottom of a 2000-line inline script, so
+     it only runs after Leaflet and all the markup have parsed. That was
+     acceptable while pixel was opt-in — the default theme painted and stayed.
+     Now that pixel is the DEFAULT, deferring the class gives every visitor a
+     flash of the dark theme first (FOUC), which looks like a bug and is worse
+     than either theme on its own.
+     This must stay a blocking inline script with no src and no defer/async:
+     any of those reintroduces exactly the gap it exists to close. It is also
+     deliberately duplicated logic rather than a shared function — there is no
+     function in scope this early, and the duplication is three lines guarded
+     by a test that asserts all three states.
+     Three-state read, identical to the toggle's: only an explicit '0' opts
+     out, so a returning visitor who turned the skin off never sees it flash
+     on. try/catch because private-mode Safari throws on localStorage access,
+     and a theme preference must never be able to take the page down. -->
+<script>
+  (function () {
+    var on = true;
+    try { on = localStorage.getItem('pixelSkin') !== '0'; } catch (e) {}
+    if (on) document.body.classList.add('pixel');
+  })();
+</script>
+<!-- Pixel skin toggle. A real <button>, so it is keyboard-reachable and
+     announced as a toggle; aria-pressed is maintained in JS.
+     The static attributes say ON because the skin is now the DEFAULT — if the
+     toggle's script fails to run, the markup must describe what the page
+     actually looks like rather than contradict it (4.1.2 Name, Role, Value). -->
+<button id="skinbtn" type="button" aria-pressed="true"
+        aria-label="Turn off pixel art skin">▧ PIXEL ON</button>
+<!-- Falling blossom. Purely decorative, hidden from assistive tech, and
+     CSS-gated behind prefers-reduced-motion. -->
+<div id="sakura" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
 <div id="map"></div>
+<!-- Service alerts. First shipped as a banner, which measured 215px tall and
+     ate 23.9% of a 390px phone viewport while overlapping the HUD — the map is
+     the product, so a notice board must not outrank it. Now a bell in the top
+     strip carrying a count, opening a drawer on demand.
+     The bell is the live region (polite, and only the COUNT changes), so a
+     screen reader is told "2 service alerts" rather than having three
+     paragraphs of night-works prose read at it on every 5-minute poll. -->
+<button id="alertbell" type="button" hidden
+        aria-expanded="false" aria-controls="alertdrawer">
+  <span class="abell" aria-hidden="true">&#9888;</span>
+  <span class="acount" id="alertcount">0</span>
+  <span class="sr" id="alertsr" aria-live="polite"></span>
+</button>
+<div id="alertdrawer" role="group" aria-label="Service alerts" hidden></div>
 <div id="hud" class="panel">
   <div id="hudbar" role="button" tabindex="0" aria-expanded="true"
        aria-controls="hudbody" title="Show or hide the details">
@@ -380,8 +633,18 @@
     <div class="note" id="note">Updates every 10s.</div>
   </div>
 </div>
-<button id="sheetbtn">Arrivals</button>
-<button id="planbtn">&#128337; Plan</button>
+<!-- Favourite stations replace the generic arrivals sheet. "Arrivals" listed
+     every train on the network sorted by ETA, which is only useful if your
+     question is "what is moving right now" — the actual question is "when is
+     my train, from my station". Two slots, because that is the shape of a
+     commute: Home, and the other end (work, school, the pub — relabel it).
+     Unset slots show as "Set Home" and configure on tap, so the control is
+     self-explaining with no onboarding. -->
+<div id="favbar">
+  <button id="favhome" class="favbtn unset" type="button">Set Home</button>
+  <button id="favaway" class="favbtn unset" type="button">Set Away</button>
+  <button id="planbtn" type="button"><span aria-hidden="true">&#128337;</span> Plan</button>
+</div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="list" class="panel"></div>
 
@@ -500,7 +763,14 @@
 const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-const map = L.map('map', { zoomControl:false, preferCanvas:true })
+// attributionControl.prefix: Leaflet 1.9.x bakes a Ukraine flag SVG into its
+// default attribution prefix (class .leaflet-attribution-flag). It is the
+// library's own editorial content, not ours and not a data credit, so it is
+// replaced with a plain library credit rather than hidden with CSS — hiding it
+// would leave the element in the DOM for screen readers to announce.
+// The Esri and Auckland Transport credits are separate (TILE_ATTR) and stay.
+const map = L.map('map', { zoomControl:false, preferCanvas:true,
+                           attributionControl:false })
   .setView([-36.95, 174.83], 11);
 
 // ---- panel collapse ----
@@ -524,13 +794,112 @@ bar.onkeydown = e => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); bar.onclick(); }
 };
 
-// ---- arrivals sheet (phone) ----
+// ---- favourite stations -------------------------------------------------
+// Replaces the generic arrivals sheet. "Arrivals" listed every train on the
+// network by ETA, which answers "what is moving" — but a commuter's question
+// is "when is my train, from my station". Two slots, because that is the shape
+// of a commute: Home and the other end, and the second is relabelable because
+// it is work for some people and school or the gym for others.
+//
+// localStorage, not a server account: the site holds no identity by design
+// (see the privacy decision — no reporter column, no IPs, no analytics), and a
+// favourite station is exactly the kind of thing that must not become a
+// profile. Price is that favourites are per-device, which is the right trade.
 const listEl = document.getElementById('list');
-const sheetBtn = document.getElementById('sheetbtn');
-sheetBtn.onclick = () => {
-  const open = listEl.classList.toggle('open');
-  sheetBtn.textContent = open ? 'Hide arrivals' : 'Arrivals';
-};
+const FAVKEY = 'favStations';
+
+function favs() {
+  try {
+    const v = JSON.parse(localStorage.getItem(FAVKEY) || '{}');
+    return (v && typeof v === 'object') ? v : {};
+  } catch (e) { return {}; }   // corrupt value must not break the whole map
+}
+function saveFavs(v) {
+  try { localStorage.setItem(FAVKEY, JSON.stringify(v)); } catch (e) {}
+  renderFavs();
+}
+
+function renderFavs() {
+  const f = favs();
+  for (const slot of ['home', 'away']) {
+    const btn = document.getElementById('fav' + slot);
+    if (!btn) continue;
+    const cur = f[slot];
+    const dflt = slot === 'home' ? 'Home' : 'Away';
+    if (cur && cur.station) {
+      btn.classList.remove('unset');
+      btn.innerHTML = `<span class="favlabel">${esc(cur.label || dflt)}</span>
+                       <span class="favstn"> ${esc(cur.station)}</span>`;
+      btn.setAttribute('aria-label',
+        `Departures from ${cur.station} (${cur.label || dflt}). Long press to change.`);
+    } else {
+      btn.classList.add('unset');
+      btn.textContent = 'Set ' + dflt;
+      btn.setAttribute('aria-label', `Choose your ${dflt} station`);
+    }
+  }
+}
+
+// Picking a station reuses the stations list the journey planner already
+// fetches, so there is no second source of station names to drift.
+async function pickFav(slot) {
+  const dflt = slot === 'home' ? 'Home' : 'Away';
+  const f = favs();
+  // STATIONS is a plain `let` in this inline script, NOT window.STATIONS —
+  // a window.* guard here would be permanently undefined (the same mistake
+  // was made with drawCars and LAST_TRAINS). ensureStations() has already
+  // populated it and returns it, so take the return value.
+  const list = await ensureStations();
+  const names = (list || []).map(x => x.name || x).sort();
+  if (!names.length) { toast('station list not loaded yet'); return; }
+  const cur = f[slot] && f[slot].station;
+  const pick = prompt(
+    `Which station is your ${dflt}?\n\n` +
+    `Type a name, or part of one. Leave blank to clear.`,
+    cur || '');
+  if (pick === null) return;                       // cancelled
+  if (!pick.trim()) { delete f[slot]; saveFavs(f); return; }
+  // Substring match, case-insensitive, shortest wins — "new" should land on
+  // Newmarket rather than New Lynn only if it is genuinely the closer match,
+  // so an exact hit is always preferred first.
+  const q = pick.trim().toLowerCase();
+  const exact = names.find(n => n.toLowerCase() === q);
+  const hits = names.filter(n => n.toLowerCase().includes(q));
+  const chosen = exact || (hits.length ? hits.sort((a,b) => a.length-b.length)[0] : null);
+  if (!chosen) { toast(`No station matching "${pick.trim()}"`); return; }
+  // Only the Away slot is relabelable; Home is Home.
+  let label = dflt;
+  if (slot === 'away') {
+    const l = prompt('Label for this one? (work, school, gym…)',
+                     (f.away && f.away.label) || 'Away');
+    if (l && l.trim()) label = l.trim().slice(0, 12);
+  }
+  f[slot] = { station: chosen, label };
+  saveFavs(f);
+  openBoard(chosen);
+}
+
+for (const slot of ['home', 'away']) {
+  const btn = document.getElementById('fav' + slot);
+  if (!btn) continue;
+  btn.onclick = () => {
+    const cur = favs()[slot];
+    if (cur && cur.station) openBoard(cur.station);   // the common case: one tap
+    else pickFav(slot);
+  };
+  // Long-press (touch) and right-click (desktop) both reconfigure, so the
+  // primary tap can stay a single action.
+  btn.oncontextmenu = e => { e.preventDefault(); pickFav(slot); };
+  let lp = null;
+  btn.addEventListener('touchstart', () => {
+    lp = setTimeout(() => { lp = null; pickFav(slot); }, 550);
+  }, {passive:true});
+  const cancel = () => { if (lp) { clearTimeout(lp); lp = null; } };
+  btn.addEventListener('touchend', cancel);
+  btn.addEventListener('touchmove', cancel);
+  btn.addEventListener('touchcancel', cancel);
+}
+renderFavs();
 
 L.control.zoom({ position:'topright' }).addTo(map);
 
@@ -590,10 +959,68 @@ document.getElementById('map').addEventListener('click', (ev) => {
   ev.stopPropagation();
   openBoard(st);
 }, true);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution:'&copy; OpenStreetMap contributors &middot; live data &copy; Auckland Transport',
-  maxZoom:19
-}).addTo(map);
+// ---------------------------------------------------------------- basemap
+// LABEL-FREE TILES. The raw OSM basemap prints every road, suburb, shop and
+// building name, and at the default zoom that text competes directly with the
+// train markers and the station names — the map was "too busy" and the
+// stations masked the trains.
+//
+// Carto's *_nolabels rasters are the same geometry with the text layer
+// removed, so OUR labels are the only words on the map and the trains have
+// somewhere to be seen. Two variants, because the skin inverts the page:
+// positron (light) under the pixel skin, dark-matter under the default theme.
+// Both verified 200 before being wired in.
+//
+// Side effect worth recording: the station labels sit ABOVE their dot because
+// OSM used to print a suburb name to the right, rendering "Otahuhu Otahuhu".
+// With a label-free basemap that collision is gone at the source — the offset
+// is kept anyway, since above-the-dot is still clearer against a track line.
+// Esri Canvas "Gray Base" rasters: real geography, NO text labels at all.
+//
+// WHY NOT CARTO: basemaps.cartocdn.com/*_nolabels returns HTTP 200 for an
+// unkeyed request — but the tile is a 2 KB placeholder stamped "API KEY
+// REQUIRED" across every square. A status-code check passes it happily; the
+// screenshot is what caught it. Lesson recorded: for a tile endpoint, verify
+// the PIXELS (or at minimum the byte size — a real tile here is 10-43 KB, the
+// watermark 2 KB), never just the HTTP status.
+//
+// Esri's Canvas services are open for use with attribution and are purpose
+// built as a backdrop for data: coastline, water and a faint road network,
+// and nothing written on them. That is precisely the problem being fixed —
+// the raw OSM basemap printed every road, suburb and shop name, which at the
+// default zoom competed with the train markers and the station labels.
+//
+// Note the tile path order: Esri is /{z}/{y}/{x}, the transpose of the usual
+// /{z}/{x}/{y}. Getting it wrong yields valid-looking tiles of the wrong
+// place, which is worse than an error.
+const TILE_ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+const TILE_LIGHT = TILE_ESRI + 'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+const TILE_DARK  = TILE_ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+const TILE_ATTR  = 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ' +
+                   ' &middot; live data &copy; Auckland Transport';
+// Pick the correct raster on the FIRST layer, rather than always starting dark
+// and swapping. The skin class is already on <body> by now (set by the
+// blocking script at the top of <body>), so this reads the resolved theme
+// instead of guessing. Starting dark and letting setBasemap() correct it would
+// fetch a screenful of tiles nobody sees and flash the wrong basemap — which
+// is precisely what happens by default now that pixel is the default skin.
+let tileLayer = L.tileLayer(
+  document.body.classList.contains('pixel') ? TILE_LIGHT : TILE_DARK,
+  { attribution: TILE_ATTR, maxZoom: 16 }).addTo(map);
+
+// Our own attribution control, with a plain-text library credit as the prefix.
+L.control.attribution({ prefix: '<a href="https://leafletjs.com/">Leaflet</a>' })
+ .addTo(map);
+
+// Swap the raster when the skin changes. Leaflet keeps the pane, so this does
+// not disturb zoom, centre, markers or any open popup.
+function setBasemap(light) {
+  const url = light ? TILE_LIGHT : TILE_DARK;
+  if (tileLayer && tileLayer._url === url) return;
+  if (tileLayer) map.removeLayer(tileLayer);
+  tileLayer = L.tileLayer(url, { attribution: TILE_ATTR, maxZoom: 16 }).addTo(map);
+}
+window.setBasemap = setBasemap;
 
 // Station positions for the click fallback below.
 const STATION_PTS = [];
@@ -616,6 +1043,22 @@ fetch('/static/rail_geo.json').then(r => r.json()).then(geo => {
   // behind the clicks. Keep the first platform's position per base name.
   STATION_PTS.length = 0;
   const stationSeen = new Map();
+
+  // --------------------------------------------------- station importance
+  // Tier is BAKED AT BUILD TIME by src/build_static.py and arrives as
+  // stops[code].tier — see that file for how it is derived from the
+  // timetable (routes serving the station, scheduled call volume, terminus
+  // count). It is deliberately not computed here: the inputs live in the
+  // 12 MB server-side geometry file which the browser never downloads, and
+  // an earlier attempt to do it client-side silently graded every station
+  // tier 3 because web/rail_geo.json carries no `trips` key. The test caught
+  // it; the lesson is that the browser copy is a SUBSET, so anything derived
+  // from the full timetable has to be baked, not recomputed.
+  //
+  // Read per-stop below as `s.tier`, falling back to 2 so a stale cached
+  // geometry file still renders a sensible map rather than hiding every
+  // label or promoting all of them.
+
   for (const [code, s] of Object.entries(geo.stops)) {
     const base = String(s.name || '').replace(/\s+\d+$/, '');
     if (!base || stationSeen.has(base)) continue;
@@ -627,8 +1070,13 @@ fetch('/static/rail_geo.json').then(r => r.json()).then(geo => {
     // last stole the tap, which is what "stations are hard to click" was.
     // A single nearest-station test on the map container handles it instead,
     // so the closest dot always wins however tightly they are packed.
-    const m = L.circleMarker([s.lat, s.lon], { radius:3.6, color:'#fff',
-      weight:1.4, fillColor:'#1a2029', fillOpacity:1, interactive:false });
+    // Major stations get a slightly larger dot as well as an earlier label,
+    // so the hierarchy still reads when the labels are hidden entirely.
+    const tier = Number(s.tier) || 2;
+    const m = L.circleMarker([s.lat, s.lon], {
+      radius: tier === 1 ? 4.8 : (tier === 2 ? 3.6 : 3.0),
+      color:'#fff', weight: tier === 1 ? 1.8 : 1.4,
+      fillColor:'#1a2029', fillOpacity:1, interactive:false });
     // Permanent label, not a hover tooltip: a map of unnamed dots is useless
     // on a phone, where there is no hover at all. Leaflet keeps these in their
     // own pane so they never swallow a click meant for a train.
@@ -639,8 +1087,8 @@ fetch('/static/rail_geo.json').then(r => r.json()).then(geo => {
     // nearly every case because the basemap puts its text level with, not over,
     // the place it names.
     m.bindTooltip(esc(base), {permanent:true, direction:'top',
-                              className:'stname', offset:[0,-4]});
-    STATION_PTS.push({ name: base, ll: L.latLng(s.lat, s.lon) });
+                              className:'stname t' + tier, offset:[0,-4]});
+    STATION_PTS.push({ name: base, ll: L.latLng(s.lat, s.lon), tier });
     m.addTo(stopLayer);
   }
   for (const [code, r] of Object.entries(geo.routes)) {
@@ -649,6 +1097,12 @@ fetch('/static/rail_geo.json').then(r => r.json()).then(geo => {
                      on: cur ? cur.on : true, count: cur ? cur.count : 0});
   }
   renderLegend();
+  // The labels only exist once this fetch resolves, and neither `zoomend` nor
+  // `moveend` fires on a fresh load — so without this the LANDING view keeps
+  // every collision. Measured: 11 overlapping pairs at z11 before adding it,
+  // on both desktop and phone. Two frames of delay lets Leaflet finish
+  // positioning the tooltips before anything is measured.
+  requestAnimationFrame(() => requestAnimationFrame(declutter));
 }).catch(e => console.warn('geometry load failed', e));
 
 // In service: a filled arrow pointing the way it is going.
@@ -747,12 +1201,23 @@ function renderLegend() {
       <span class="swatch" style="background:${esc(v.colour)}"></span>
       <span>${esc(v.name)}</span><span class="n">${v.count}</span></label>`).join('');
   el.querySelectorAll('input').forEach(i => i.onchange = () => {
-    lines.get(i.dataset.code).on = i.checked; applyFilter();
+    const code = i.dataset.code;
+    lines.get(code).on = i.checked;
+    // Remember the stabled-stock choice across visits; line filters stay
+    // per-session, since those are a "right now" question.
+    if (code === 'OOS') {
+      SHOW_OOS = i.checked;
+      localStorage.setItem('showOos', SHOW_OOS ? '1' : '0');
+    }
+    applyFilter(); renderList();
   });
 }
 
 function applyFilter() {
   for (const m of markers.values()) {
+    // Single chokepoint for marker visibility, re-run every tick. The
+    // not-in-service default lives in the OOS line's initial `on` value, so
+    // there is exactly one rule here and no second parallel condition.
     const on = lines.get(m._route)?.on !== false;
     if (on && !trainLayer.hasLayer(m)) trainLayer.addLayer(m);
     if (!on && trainLayer.hasLayer(m)) trainLayer.removeLayer(m);
@@ -767,6 +1232,13 @@ const mmss = s => (s<0 ? 'due' : s<60 ? s+'s' : Math.round(s/60)+'m');
 // AMP car. So "AMT701" on a seat-back and "AMP 701" on the map are one train.
 const setNo = u => { const m = String(u ?? '').match(/(?<!\d)(\d{2,4})(?!\d)/); return m ? m[1] : null; };
 let FB = {};            // set number -> {n, worst, last, top_category_label}
+// Not-in-service units (stabled or empty stock) are hidden by default: on a
+// typical poll they are ~a third of all markers and none of them can be
+// boarded, so they crowd out the trains a rider can actually catch. Kept
+// behind a toggle rather than dropped, because "where is my set" is a real
+// question for enthusiasts and for our own feedback triage.
+// Opt-in is remembered; the default for a first-time visitor is hidden.
+let SHOW_OOS = localStorage.getItem('showOos') === '1';
 let LAST_TRAINS = [];   // most recent /api/trains payload, so the arrivals list
                         // can be re-rendered when the feedback summary lands
 let META = null;        // categories/severities, fetched once from the server
@@ -926,6 +1398,75 @@ function flagHtml(unit) {
 
 // The report button inside a popup. Leaflet rebuilds popup content on every
 // poll, so this uses a delegated click handler (below) rather than a bound one.
+// The train, drawn, with any known fault shaded onto the carriage it belongs
+// to. This now renders in the popup BY DEFAULT rather than only inside the
+// report form, because the question a rider on a platform actually has is
+// "which end do I get on", and a sentence ("Most reports: Car 2 of 3") makes
+// them do the mapping in their head while a train is pulling in.
+//
+// Shown left-to-right in DIRECTION OF TRAVEL, so car 1 is the leading car.
+// For a 6-car we only draw both halves when we know the order; if position is
+// null (AT named the couple but we could not order it from GPS — about half
+// of them) we draw this set's three cars alone and say so, because drawing a
+// guessed front/rear would put the warning on the wrong end of the train.
+function trainDiagram(unit) {
+  const sn = setNo(unit);
+  if (!sn) return '';
+  const f = flagFor(unit) || {};
+  const cars = f.cars || {};               // car position -> open smell reports
+  const cp = COUPLES[String(sn)] || null;
+  const six = cp && cp.partner && (cp.consist | 0) === 6;
+  const ordered = six && (cp.position === 'front' || cp.position === 'rear');
+
+  // Which absolute positions belong to THIS set, and what each car is labelled.
+  // On an ordered 6-car we draw all six and mark the three that are ours.
+  const n = ordered ? 6 : 3;
+  const mine = !ordered ? [1, 2, 3]
+    : (cp.position === 'front' ? [1, 2, 3] : [4, 5, 6]);
+
+  const variant = document.body.classList.contains('pixel') ? 'pixel' : 'smooth';
+  const worst = Math.max(1, ...Object.values(cars).map(v => v | 0));
+
+  let out = '';
+  for (let i = 1; i <= n; i++) {
+    // Cabs sit on the OUTER car of each 3-car set: 1,3 on a 3-car and
+    // 1,3,4,6 on a 6-car (3 and 4 are the coupled ends facing each other).
+    const cabEnd = (i === 1) ? 'left'
+      : (i === n) ? 'right'
+      : (i === 3) ? 'right'
+      : (i === 4) ? 'left' : 'none';
+    const isMine = mine.indexOf(i) !== -1;
+    // A report's car number is relative to its own set, so on the rear half
+    // car 4 absolute is car 1 of this set.
+    const rel = isMine ? (i - mine[0] + 1) : null;
+    const cnt = (isMine && rel) ? (cars[String(rel)] | 0) : 0;
+    const lvl = cnt === 0 ? 0 : (cnt >= worst && worst > 0 ? 2 : 1);
+    out += `<div class="dcar${isMine ? '' : ' other'}${cnt ? ' bad lvl' + lvl : ''}"
+       title="${isMine ? `Car ${rel} of 3 (set ${esc(String(sn))})${
+          cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ' \u2014 no reports'}`
+        : `Car ${i} \u2014 set ${esc(String(cp && cp.partner || '?'))}`}">
+       ${carSvg(cabEnd, variant, false)}
+       <span class="dnum">${i}</span>
+       ${cnt ? `<span class="dflag" aria-hidden="true">${cnt}</span>` : ''}
+     </div>`;
+  }
+
+  const anyBad = Object.keys(cars).length > 0;
+  const six_unk = (f.n_sixcar | 0);
+  return `<div class="tdiag">
+    <div class="dcars" role="img"
+         aria-label="${ordered ? 'Six' : 'Three'}-car train, front at left${
+           anyBad ? '. Shaded carriages have smell reports.' : ''}">${out}</div>
+    <div class="dlegend">
+      <span class="dfront">&#9654; front</span>
+      ${anyBad ? '<span class="dkey"><i class="sw"></i> reported</span>' : ''}
+      ${ordered ? `<span class="dkey dim2">cars ${mine[0]}&ndash;${mine[2]} = set ${esc(String(sn))}</span>` : ''}
+      ${six && !ordered ? '<span class="dkey dim2">6-car: we can&rsquo;t tell which half yet</span>' : ''}
+      ${six_unk ? `<span class="dkey dim2">${six_unk} report${six_unk > 1 ? 's' : ''} car unknown</span>` : ''}
+    </div>
+  </div>`;
+}
+
 function reportBlock(unit) {
   if (!setNo(unit)) return '';
   const sn = setNo(unit);
@@ -938,6 +1479,7 @@ function reportBlock(unit) {
   const cp = COUPLES[String(sn)];
   const np = f && (f.n_people | 0);
   return `
+    ${trainDiagram(unit)}
     ${np ? `<div class="rowdy-line">\u2620 ${np} behaviour report${np>1?'s':''}
        on this service <span class="dim2">\u2014 clears at the last stop</span></div>` : ''}
     ${cp && cp.partner ? `<div class="couple">${(cp.consist|0) || 6}-car service &middot; ${
@@ -949,8 +1491,12 @@ function reportBlock(unit) {
              ? `<span class="inf" title="Carriage count and both set numbers published by Auckland Transport. Which half is at the front is worked out from the two sets&rsquo; positions.">i</span>`
              : `<span class="inf" title="Carriage count and both set numbers published by Auckland Transport.">i</span>`)
          : `<span class="inf" title="Inferred from train positions, not published by AT">?</span>`}</div>` : ''}
-    ${wc ? `<div class="avoid">Most reports: <b>${esc(wc)}</b>${
-       f.worst_car_n > 1 ? ` (${f.worst_car_n|0})` : ''}</div>` : ''}
+    ${/* The diagram above shades the offending carriage, so repeating
+          "Most reports: Car 2 of 3" underneath is the same fact twice. Keep
+          the sentence ONLY when there is no per-car breakdown to draw. */
+      (wc && !(f.cars && Object.keys(f.cars).length))
+        ? `<div class="avoid">Most reports: <b>${esc(wc)}</b>${
+            f.worst_car_n > 1 ? ` (${f.worst_car_n|0})` : ''}</div>` : ''}
     ${six ? `<div class="avoid dim">${six} report${six>1?'s':''} from a 6-car
        service &mdash; carriage can't be tied to this set</div>` : ''}
     <div class="popacts">
@@ -1061,10 +1607,14 @@ function logHtml(reports) {
       ${r.note ? `<div class="ln">${esc(r.note)}</div>` : ''}
       <div class="lv">
         <span class="muted">${r.about_people ? 'Still happening?' : 'Still smell?'}</span>
-        <button class="vote ${my === 1 ? 'on' : ''}" data-id="${r.id|0}" data-v="1"
-                aria-label="Still a problem">&#128078; yes (${r.confirms|0})</button>
-        <button class="vote ${my === -1 ? 'on' : ''}" data-id="${r.id|0}" data-v="-1"
-                aria-label="Fine now">&#128077; no (${r.clears|0})</button>
+        <span class="votes"><button class="vote up ${my === 1 ? 'on' : ''}" data-id="${r.id|0}" data-v="1"
+                aria-label="Confirm: still a problem"
+                title="I'm on it too \u2014 still a problem"
+                ><span class="varr">&#9650;</span> ${r.confirms|0}</button>
+        <button class="vote down ${my === -1 ? 'on' : ''}" data-id="${r.id|0}" data-v="-1"
+                aria-label="Disagree: fine now"
+                title="Seems fine to me now"
+                ><span class="varr">&#9660;</span> ${r.clears|0}</button></span>
       </div>
     </div>`;
   }).join('');
@@ -1206,22 +1756,142 @@ function setLen(n) {
   drawCars();
 }
 
+// --------------------------------------------------------- carriage artwork
+// Small side-on drawings of an AM-class car, so the picker shows a TRAIN
+// rather than three identical squares. Riders pick "the front one with the
+// cab" far more reliably than "car 1".
+//
+// DRAWN FROM SCRATCH, NOT TRACED. AT's brand-guideline illustrations are
+// their copyrighted artwork; what is reused here is only factual and public:
+// the AM class is a 3-car set whose OUTER cars carry driving cabs and whose
+// MIDDLE car does not, the doors are yellow, the body is blue over a grey
+// skirt. Those are facts about the train, not AT's drawing of it. The shapes
+// below are plain polygons of my own, deliberately simple.
+//
+// Two variants because the site has two skins:
+//   'smooth' - angled cab nose, rounded-ish window strip (default theme)
+//   'pixel'  - same silhouette quantised to a 2px grid, flat colours, no
+//              anti-aliasing, to match the HIKARI pixel skin
+//
+// The cab/no-cab distinction is the useful signal: on a 6-car (two coupled
+// sets) cars 3 and 4 are the COUPLED ends that face each other, which is why
+// the 6-car layout draws cabs at 1, 3, 4 and 6 — that is genuinely what a
+// rider sees walking the train.
+const CAR_ART = {
+  // body, skirt, door, window, outline
+  smooth: { body:'#1b3a6b', body2:'#2a5ea8', skirt:'#9aa3ad', door:'#f5c518',
+            win:'#cfe0f2', line:'#0d1117' },
+  pixel:  { body:'#16417a', body2:'#2f7ec4', skirt:'#8c97a3', door:'#ffcc33',
+            win:'#eaf2fb', line:'#15202e' }
+};
+
+// cabEnd: 'left' | 'right' | 'both' | 'none'
+//
+// SIZED FOR WHERE IT ACTUALLY RENDERS. Measured: 46x18 CSS px on a 3-car row,
+// and 34x13 on a 6-car row. That is the real constraint and it drove two
+// rewrites:
+//
+//   1st attempt tapered the ROOF inward, which read as a boat hull. A train
+//      nose rakes at the FRONT — the end face leans, the roof stays level.
+//   2nd attempt was right-shaped but too busy: a full-width window strip plus
+//      two doors plus bogies inside 13px of height is mush. At this size
+//      every element has to earn its pixels.
+//
+// So the drawing carries exactly four signals, in order of what a rider uses
+// to place themselves: the CAB RAKE (which end is the front), the DOORS
+// (where you boarded), the WINDOW BAND (it is a passenger car), and a dark
+// underframe (it sits on rails). Everything else is dropped.
+//
+// Proportions are the AM class's own: ~23m long over ~3.6m tall, so the body
+// is drawn roughly 4:1 — long and low, never square.
+function carSvg(cabEnd, variant, on) {
+  const c = CAR_ART[variant] || CAR_ART.smooth;
+  const W = 52, H = 20;
+  const px = variant === 'pixel';
+  const body = on ? c.body2 : c.body;
+  const noseL = cabEnd === 'left'  || cabEnd === 'both';
+  const noseR = cabEnd === 'right' || cabEnd === 'both';
+  const rend = px ? ' shape-rendering="crispEdges"' : '';
+
+  // Body: roof y=4, floor y=15. The rake is a horizontal inset applied to the
+  // TOP corner of a cab end, so the end face leans forward over a level roof.
+  const RAKE = 5;
+  const x0 = 1, x1 = W - 1, yT = 4, yB = 15;
+  const p = [];
+  p.push([x0, yB]);
+  p.push([x0, noseL ? yT + 4 : yT]);
+  if (noseL) p.push([x0 + RAKE, yT]);
+  p.push([noseR ? x1 - RAKE : x1, yT]);
+  if (noseR) p.push([x1, yT + 4]);
+  p.push([x1, yB]);
+  const shape = `<polygon points="${p.map(q => q.join(',')).join(' ')}"
+      fill="${body}" stroke="${c.line}" stroke-width="1"
+      stroke-linejoin="${px ? 'miter' : 'round'}"${rend}/>`;
+
+  // Doors: the strongest cue at small size, so they are full body height and
+  // sit at the quarter points like the real car.
+  const iL = x0 + (noseL ? RAKE : 1);
+  const iR = x1 - (noseR ? RAKE : 1);
+  const span = iR - iL;
+  const dW = 4;
+  const d1 = Math.round(iL + span * 0.22);
+  const d2 = Math.round(iL + span * 0.78) - dW;
+
+  // Window band only BETWEEN the doors and beyond them — drawn as two short
+  // runs rather than one long strip, which stops it reading as a white slot
+  // through the middle of the car.
+  const wy = yT + 2, wh = 3;
+  const seg = (a, b) => (b - a > 2
+    ? `<rect x="${a}" y="${wy}" width="${b - a}" height="${wh}"
+         fill="${c.win}" opacity=".9"${rend}/>` : '');
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"
+            aria-hidden="true" focusable="false" class="carart">
+    ${shape}
+    ${seg(iL + 1, d1 - 1)}
+    ${seg(d1 + dW + 1, d2 - 1)}
+    ${seg(d2 + dW + 1, iR - 1)}
+    <rect x="${d1}" y="${yT + 1}" width="${dW}" height="${yB - yT - 1}"
+          fill="${c.door}"${rend}/>
+    <rect x="${d2}" y="${yT + 1}" width="${dW}" height="${yB - yT - 1}"
+          fill="${c.door}"${rend}/>
+    <rect x="${x0}" y="${yB}" width="${x1 - x0}" height="3"
+          fill="${c.skirt}"${rend}/>
+  </svg>`;
+}
+
 function drawCars() {
   const el = document.getElementById('carpick');
+  if (!el) return;
   const note = document.getElementById('carnote');
   // Unknown length: offer the 3-car layout (the common case) but we store no
   // consist, so the report is marked "car position unverified" server-side.
   const n = fbLen || 3;
+  const variant = document.body.classList.contains('pixel') ? 'pixel' : 'smooth';
   let html = '';
   for (let i = 1; i <= n; i++) {
-    const glyph = i === 1 ? '&#9650;' : i === n ? '&#9660;' : '&#9632;';
-    html += `<button type="button" class="car${fbCar === i ? ' on' : ''}"
-               data-p="${i}" role="radio" aria-checked="${fbCar === i}"
-               aria-label="Car ${i} of ${n}">
-               <span class="cx">${glyph}</span><span class="cl">${i}</span>
+    // Cabs: outer ends of the whole train, plus the two inner ends where the
+    // sets couple on a 6-car. Middle cars of each set have no cab.
+    let cabEnd = 'none';
+    if (n === 6) {
+      if (i === 1) cabEnd = 'left';
+      else if (i === 3) cabEnd = 'right';
+      else if (i === 4) cabEnd = 'left';
+      else if (i === 6) cabEnd = 'right';
+    } else {
+      if (i === 1) cabEnd = 'left';
+      else if (i === n) cabEnd = 'right';
+    }
+    const sel = fbCar === i;
+    html += `<button type="button" class="car${sel ? ' on' : ''}"
+               data-p="${i}" role="radio" aria-checked="${sel}"
+               aria-label="Car ${i} of ${n}${cabEnd !== 'none' ? ', has a driver\u2019s cab' : ''}">
+               ${carSvg(cabEnd, variant, sel)}<span class="cl">${i}</span>
              </button>`;
   }
-  html += `<button type="button" class="car${fbCar === 0 ? ' on' : ''}"
+  // "Not sure" is a first-class answer, not a cop-out: it is excluded from the
+  // worst-car maths rather than guessed at, so it must stay easy to pick.
+  html += `<button type="button" class="car nosure${fbCar === 0 ? ' on' : ''}"
              data-p="0" role="radio" aria-checked="${fbCar === 0}"
              aria-label="Not sure which carriage">
              <span class="cx">?</span><span class="cl">&ndash;</span>
@@ -1390,7 +2060,14 @@ async function tick() {
     if (t.trailing_half) continue;
     seen.add(t.id);
     if (!lines.has(t.route))
-      lines.set(t.route, {name:t.line, colour:t.colour, on:true, count:0});
+      // Not-in-service units (live.py OOS_ROUTE) start HIDDEN: they are ~a
+      // third of markers on a normal poll and none can be boarded, so they
+      // crowd out trains a rider could actually catch. Every other line starts
+      // on. The choice is remembered, so an enthusiast who wants stabled stock
+      // asks once. Reusing the existing legend checkbox rather than adding a
+      // second control for the same idea.
+      lines.set(t.route, {name:t.line, colour:t.colour, count:0,
+                          on: t.route === 'OOS' ? SHOW_OOS : true});
     const L_ = lines.get(t.route); L_.count++;
     const oos = t.in_service === false;
     const popup = popupFor(t);
@@ -1428,7 +2105,12 @@ async function tick() {
 function renderList() {
   // Trailing halves are filtered out for the same reason as on the map: one
   // physical train, one row. The row for the set carrying the trip names both.
-  const sorted = LAST_TRAINS.filter(t => !t.trailing_half).slice().sort((a,b) =>
+  // Same source of truth as the map, or the list and the markers disagree.
+  // Before the first poll `lines` is empty, and `?.on !== false` would read
+  // undefined as "show" — defaulting to the opposite of what we promised.
+  const oosOn = lines.has('OOS') ? lines.get('OOS').on !== false : SHOW_OOS;
+  const sorted = LAST_TRAINS.filter(t => !t.trailing_half)
+    .filter(t => oosOn || t.in_service !== false).slice().sort((a,b) =>
     (a.in_service===false) - (b.in_service===false) ||
     (a.eta_s ?? 1e9) - (b.eta_s ?? 1e9) ||
     String(a.unit||'').localeCompare(String(b.unit||'')));
@@ -1465,6 +2147,132 @@ loadFeedback(); setInterval(loadFeedback, 60000);
 // Couples form and break as trains join/split and as halves stop reporting,
 // so refresh near the trains cadence rather than once at load. refreshFlags()
 // rebuilds popups so a newly detected couple appears without a reopen.
+// ---- service alerts ------------------------------------------------------
+// AT's servicealerts feed was previously unconsumed entirely. A field census
+// found 161 live alerts network-wide, 12 touching rail, 9 of them SEVERE and
+// specific ("South City line closed between Pukekohe and Puhinui after 9:30pm
+// Monday"). Without this the map happily routes people to a closed station.
+//
+// Only alerts the server has judged IN FORCE are shown by default; `upcoming`
+// is fetched too but rendered dimmer and capped, because a Wednesday closure
+// displayed as a live warning on Saturday is the same dishonesty as drawing a
+// guessed train position.
+//
+// Polled at 5 minutes, matching the server cache. These are human-authored
+// notices; polling at the map's 10s cadence would burn AT quota for nothing.
+const ALERT_POLL_MS = 300000;
+const AXDISMISS = 'alertsDismissed';
+
+function dismissed() {
+  try { return new Set(JSON.parse(sessionStorage.getItem(AXDISMISS) || '[]')); }
+  catch (e) { return new Set(); }
+}
+function dismiss(id) {
+  const d = dismissed(); d.add(id);
+  try { sessionStorage.setItem(AXDISMISS, JSON.stringify([...d])); } catch (e) {}
+  renderAlerts(LAST_ALERTS);
+}
+
+let LAST_ALERTS = null;
+
+function alertWhen(a) {
+  // Render the window in plain language. AT timestamps are seconds.
+  if (!a.starts) return '';
+  const fmt = t => new Date(t * 1000).toLocaleString('en-NZ',
+    { weekday:'short', day:'numeric', month:'short',
+      hour:'numeric', minute:'2-digit' });
+  return a.ends ? `${fmt(a.starts)} until ${fmt(a.ends)}` : `from ${fmt(a.starts)}`;
+}
+
+function renderAlerts(d) {
+  LAST_ALERTS = d;
+  const bell = document.getElementById('alertbell');
+  const drawer = document.getElementById('alertdrawer');
+  if (!bell || !drawer || !d) return;
+  const skip = dismissed();
+  // In-force first, then at most two upcoming: the feed carries a fortnight of
+  // night works and a wall of them is worse than none.
+  const items = [
+    ...(d.now || []).map(a => ({ a, up:false })),
+    ...(d.upcoming || []).slice(0, 2).map(a => ({ a, up:true })),
+  ].filter(x => !skip.has(x.a.id));
+
+  // Nothing to say: no bell at all. An empty notification control still reads
+  // as something to check, which is the behaviour being complained about.
+  if (!items.length) {
+    bell.hidden = true; drawer.hidden = true;
+    drawer.innerHTML = '';
+    bell.setAttribute('aria-expanded', 'false');
+    document.getElementById('alertsr').textContent = '';
+    return;
+  }
+
+  // The bell carries the worst severity in force, so colour means something
+  // before the drawer is opened. Upcoming-only never escalates past info: a
+  // Wednesday closure must not paint a Saturday screen red.
+  const live = items.filter(x => !x.up).map(x =>
+    String(x.a.severity || 'INFO').toUpperCase());
+  const worst = live.includes('SEVERE') ? 'severe'
+              : live.includes('WARNING') ? 'warning' : 'info';
+  bell.className = 'sev-' + worst;
+  bell.hidden = false;
+  document.getElementById('alertcount').textContent = items.length;
+  const noun = items.length === 1 ? 'service alert' : 'service alerts';
+  bell.setAttribute('aria-label',
+    items.length + ' ' + noun + ' — open for detail');
+  // Only the count goes to the live region. The prose stays in the drawer, so
+  // a 5-minute poll does not read three paragraphs of night works aloud.
+  document.getElementById('alertsr').textContent = items.length + ' ' + noun;
+
+  drawer.innerHTML = items.map(({ a, up }) => {
+    const sev = String(a.severity || 'INFO').toLowerCase();
+    const cls = up ? 'alert upcoming' : `alert sev-${esc(sev)}`;
+    const where = (a.stations || []).length
+      ? ` &middot; ${esc((a.stations || []).join(', '))}` : '';
+    const when = alertWhen(a);
+    return `<div class="${cls}">
+      <button type="button" class="ax" data-ax="${esc(a.id)}"
+              aria-label="Dismiss this alert">&times;</button>
+      <span class="ahead">${up ? 'Upcoming: ' : ''}${esc(a.header || '')}</span>
+      ${a.description ? `<span class="adesc">${esc(a.description)}</span>` : ''}
+      ${when ? `<span class="awhen">${esc(when)}${where}</span>` : ''}
+    </div>`;
+  }).join('');
+  drawer.querySelectorAll('.ax').forEach(b =>
+    b.addEventListener('click', () => dismiss(b.dataset.ax)));
+}
+
+// Bound once at load, not inside renderAlerts — rebinding on every poll would
+// stack handlers and make the bell toggle twice per click.
+(function wireBell() {
+  const bell = document.getElementById('alertbell');
+  const drawer = document.getElementById('alertdrawer');
+  if (!bell || !drawer) return;
+  bell.addEventListener('click', () => {
+    const open = drawer.hidden;
+    drawer.hidden = !open;
+    bell.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  // Escape closes it, like every other panel on this page.
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !drawer.hidden) {
+      drawer.hidden = true;
+      bell.setAttribute('aria-expanded', 'false');
+      bell.focus();
+    }
+  });
+})();
+
+async function loadAlerts() {
+  try {
+    const r = await fetch('/api/alerts');
+    if (!r.ok) return;
+    renderAlerts(await r.json());
+  } catch (e) { /* non-fatal by design: the map must survive an alerts outage */ }
+}
+
+loadAlerts(); setInterval(loadAlerts, ALERT_POLL_MS);
+
 loadCouples().then(refreshFlags);
 setInterval(() => loadCouples().then(refreshFlags), 30000);
 
@@ -1537,7 +2345,18 @@ async function loadBoard() {
         tag = `<button type="button" class="unit setlink" data-set="${r.set_no|0}"
                  aria-label="Show set ${r.set_no|0}">set ${r.set_no|0}</button>`;
       } else {
-        tag = '<span class="muted">set not assigned</span>';
+        // A dash, not a sentence. This cell holds a set number; when AT has
+        // not attached one yet, an em dash says "nothing here" in the width of
+        // the thing that is missing, and keeps the column rhythm a board
+        // depends on. "set not assigned" was three words explaining an absence
+        // on every such row, which is noise at a glance and made the row
+        // collapse to a different height than its neighbours.
+        // The meaning is NOT lost: title and aria-label carry the full phrase,
+        // so a screen reader and a hover both still get the explanation. The
+        // honesty rule is about never asserting a set we do not have, and a
+        // dash asserts nothing.
+        tag = '<span class="muted noset" title="No set assigned yet" ' +
+              'aria-label="No set assigned yet">&mdash;</span>';
       }
       // 'live' means AT has a vehicle tracked against this departure, so the
       // time is a real estimate. Without it the time is the timetable, and a
@@ -1546,17 +2365,48 @@ async function loadBoard() {
         ? '<span class="livedot" title="tracked by AT"></span>'
         : '';
       // Show the scheduled time too when AT's estimate has moved off it.
+      // Its own grid cell, not nested in .btime — nesting wrapped the row to
+      // 67px. Empty cell when on time, so the column still aligns.
       const slip = (x.scheduled && x.scheduled !== x.dep)
-        ? `<span class="muted"> (sched ${esc(x.scheduled)})</span>` : '';
+        ? `<span class="bsched" title="scheduled ${esc(x.scheduled)}">${esc(x.scheduled)}</span>`
+        : '<span class="bsched"></span>';
       const mins = (x.eta_s != null) ? Math.max(0, Math.round(x.eta_s / 60))
                                      : (x.mins_away | 0);
+      // AT has cancelled this run. The WORD carries the meaning; the
+      // strike-through is reinforcement only, because styling alone is not a
+      // signal (and is invisible to a screen reader). The minutes column is
+      // replaced rather than struck out: "CANCELLED ... 4m" invites someone to
+      // turn up anyway.
+      if (x.cancelled) {
+        return `<div class="brow cancelled">
+          <span class="btime dtime">${esc(x.dep)}</span>
+          <span class="bsched"></span>
+          <span class="bdest">${esc(x.dest || '')}</span>
+          <span class="cx">CANCELLED</span>
+          <span class="bmin"></span>
+        </div>`;
+      }
+      // Running, but AT says it will run past certain stops.
+      const skip = (x.skipped_stops && x.skipped_stops.length)
+        ? `<div class="muted" style="grid-column:1/-1;font-size:11px">
+             Not stopping at ${esc(x.skipped_stops.join(', '))}</div>` : '';
       return `<div class="brow">
-        <span class="btime">${liveTag}${esc(x.dep)}${slip}</span>
+        <span class="btime">${liveTag}${esc(x.dep)}</span>
+        ${slip}
         <span class="bdest">${esc(x.dest || '')}</span>
         ${tag}
         <span class="bmin">${mins}m</span>
+        ${skip}
       </div>`;
     }).join('');
+    // Column headings as a real grid row sharing .brow's track template.
+    // Previously this was a space-padded string in a CSS ::before, which can
+    // never line up with grid tracks at any size. aria-hidden because each row
+    // already carries its own accessible text; announcing the headings before
+    // every board is noise, not information.
+    res.innerHTML = '<div class="bhead" aria-hidden="true">' +
+      '<span>DUE</span><span>SCHED</span><span>DESTINATION</span>' +
+      '<span></span><span class="h-min">MIN</span></div>' + res.innerHTML;
   } catch (err) {
     msg.className = 'msg bad'; msg.textContent = 'could not load departures';
   }
@@ -1582,9 +2432,75 @@ setInterval(() => { if (BOARD) loadBoard(); }, 20000);
 // to sit BELOW the default view (zoom 11) or the labels are invisible at the
 // one zoom every visitor actually lands on — which was the first version of
 // this, and it silently defeated the whole feature.
+// LABEL TIERS BY ZOOM, replacing the old all-or-nothing `lowzoom` switch.
+// The previous rule showed all 48 labels at zoom >= 11 and none below, so the
+// default view carried every name at once and the station text masked the
+// trains — the thing this is fixing.
+//
+//   zoom < 10 : no labels at all (the network is 105km end to end)
+//   zoom 10-11: tier 1 only        — 14 majors, the default landing view
+//   zoom 12   : + tier 2           — 37
+//   zoom >=13 : everything         — 48
+//
+// The class goes on the map container so the rules are pure CSS and nothing
+// re-renders per frame while the user is pinching.
 function zoomClass() {
-  document.getElementById('map').classList.toggle('lowzoom', map.getZoom() < 11);
+  const z = map.getZoom();
+  const el = document.getElementById('map');
+  el.classList.toggle('lowzoom', z < 10);
+  el.classList.toggle('z-major', z >= 10 && z < 12);
+  el.classList.toggle('z-mid',   z >= 12 && z < 13);
+  el.classList.toggle('z-all',   z >= 13);
+  declutter();
 }
+
+// ----------------------------------------------------- label decluttering
+// Tiering alone does not fix the city centre. MEASURED at the default zoom
+// with only the 14 majors showing: ELEVEN overlapping label pairs, e.g.
+// "Karanga-a-Hape" over "Te Waihorotiu" by 82px and "Maungawhau" over
+// "Grafton" by 45px. That is not a styling nit — the CRL core stations are a
+// few hundred metres apart, so at z11 their labels genuinely occupy the same
+// pixels however they are styled.
+//
+// So after the zoom tiers decide WHICH labels are eligible, this pass walks
+// them in importance order and hides any whose box intersects one already
+// placed. Greedy and single-pass: cheap, stable, and it always keeps the more
+// important station rather than whichever Leaflet happened to draw last.
+//
+// Deliberately NOT a general label-placement solver. The dots stay visible
+// and clickable either way — a hidden label costs a name, not a station, and
+// the departure board still opens on tap.
+function declutter() {
+  const el = document.getElementById('map');
+  if (!el) return;
+  const labels = [];
+  document.querySelectorAll('.stname').forEach(e => {
+    e.classList.remove('hidelabel');          // reset before re-measuring
+    labels.push(e);
+  });
+  // Importance first (t1 before t2 before t3), then north-to-south so the
+  // result is deterministic rather than DOM-order dependent.
+  labels.sort((a, b) => {
+    const ta = a.classList.contains('t1') ? 1 : a.classList.contains('t2') ? 2 : 3;
+    const tb = b.classList.contains('t1') ? 1 : b.classList.contains('t2') ? 2 : 3;
+    if (ta !== tb) return ta - tb;
+    return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+  });
+  const placed = [];
+  const PAD = 2;   // a hair of breathing room, not a full gutter
+  for (const e of labels) {
+    if (e.offsetParent === null) continue;    // already hidden by the zoom tier
+    const r = e.getBoundingClientRect();
+    if (!r.width) continue;
+    const hit = placed.some(p =>
+      r.left   < p.right  + PAD && r.right  + PAD > p.left &&
+      r.top    < p.bottom + PAD && r.bottom + PAD > p.top);
+    if (hit) e.classList.add('hidelabel');
+    else placed.push(r);
+  }
+}
+// Re-run after a pan as well: moving the map changes which labels collide.
+map.on('moveend', declutter);
 map.on('zoomend', zoomClass);
 zoomClass();
 
@@ -1762,6 +2678,103 @@ document.addEventListener('click', (e) => {
   e.preventDefault(); e.stopPropagation();
   goToSet(b.dataset.set);
 });
+
+// ---------------------------------------------------------------------------
+// Pixel skin — now the DEFAULT view
+//
+// Was opt-in. Matt's call to make it the default, and the reasoning that made
+// the old comment here ("a novelty skin should not be imposed") no longer
+// true: the HIKARI cut is a light, high-contrast theme whose every pairing was
+// computed and clears AA, with AAA on the departures board. It is not a
+// legibility sacrifice for decoration — it reads better in sunlight than the
+// dark default did, which is the actual platform-in-the-rain case.
+//
+// THE DEFAULT IS A THREE-STATE PROBLEM, NOT A BOOLEAN.
+// localStorage.getItem returns null for "never chose", '1' for "chose on" and
+// '0' for "chose off". The old code did `saved === '1'`, which collapses null
+// and '0' into the same answer. Flipping that to `saved !== '0'` is what makes
+// pixel the default WITHOUT overriding the choice of anyone who previously
+// turned it off — they get what they asked for, first-time visitors get the
+// new default. Writing `saved === null ? true : saved === '1'` would be
+// equivalent; this is the same thing, shorter, and the test asserts all three
+// states so the distinction cannot silently rot.
+//
+// The class goes on <body>, and pixel.css is scoped entirely to body.pixel, so
+// toggling costs one class mutation and never touches Leaflet's layout — no
+// invalidateSize(), no tile reload, no map re-centre.
+// ---------------------------------------------------------------------------
+(function () {
+  const KEY = 'pixelSkin';
+  const btn = document.getElementById('skinbtn');
+  if (!btn) return;
+
+  function label(on) {
+    // aria-label states the ACTION rather than the current state, which is
+    // what a screen reader user needs from a toggle. The visible text names
+    // the state, since the button is also the only indicator of which theme
+    // is active.
+    btn.textContent = on ? '▧ PIXEL ON' : '▧ PIXEL OFF';
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.setAttribute('aria-label',
+      on ? 'Turn off pixel art skin' : 'Turn on pixel art skin');
+  }
+
+  function apply(on, persist) {
+    document.body.classList.toggle('pixel', on);
+    label(on);
+    // Swap the raster to match the theme: positron (light) under the skin,
+    // dark-matter under the default. Guarded because the skin script runs
+    // from a deferred block and the map may not have been built yet on a
+    // slow first paint — in that case the initial layer is already correct.
+    try { if (window.setBasemap) window.setBasemap(on); } catch (e) {}
+    // The carriage art is inline SVG with theme-specific colours and a
+    // pixel/smooth silhouette, so it must be re-rendered on a skin change.
+    // Called directly, NOT via a window.drawCars guard: this IIFE lives in the
+    // same inline script as the declaration, so the function is already in
+    // scope and is never assigned to window — such a guard would be
+    // permanently false and the art would silently never update.
+    try { drawCars(); } catch (e) {}
+    // Popups hold drawn carriages too, so an open one must be re-themed.
+    // render() rebuilds marker popups via popupFor() -> trainDiagram(), which
+    // re-reads body.pixel. Guarded: a failed redraw must not break the toggle.
+    // refreshFlags() re-runs popupFor() -> trainDiagram() on every open popup,
+    // which re-reads body.pixel and redraws the carriages in the new variant.
+    try { refreshFlags(); } catch (e) {}
+    if (persist) {
+      // Private-mode browsers throw on setItem; the skin must not take the
+      // page down with it.
+      try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+    }
+  }
+
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  // Three states, not two — see the note at the top of this block. null means
+  // "never chose" and now resolves to ON; only an explicit '0' opts out.
+  apply(saved !== '0', false);
+
+  btn.addEventListener('click', () => {
+    const on = !document.body.classList.contains('pixel');
+    apply(on, true);
+    // A single square-wave blip, built on the fly — no audio file, no library,
+    // and only ever in response to a real click, so nothing autoplays.
+    try {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return;
+      const ctx = new C();
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = on ? 660 : 440;
+      g.gain.value = 0.04;                 // quiet; this is a UI tick
+      osc.connect(g).connect(ctx.destination);
+      osc.start();
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.09);
+      osc.stop(ctx.currentTime + 0.1);
+      osc.onended = () => ctx.close();     // or we leak an AudioContext per click
+    } catch (e) {}
+  });
+})();
 </script>
 </body>
 </html>

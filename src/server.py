@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import live      # noqa: E402
+import alerts    # noqa: E402
 import board
 import consist   # noqa: E402
 import consist_at   # noqa: E402
@@ -36,6 +37,28 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 LOG = logging.getLogger("akl.server")
 
 WEB = Path(__file__).resolve().parent.parent / "web"
+
+# The app shell (index.html, admin.html) must NEVER be heuristically cached.
+#
+# FileResponse sends `etag` and `last-modified` but no `Cache-Control`. With no
+# explicit directive a browser is free to invent a freshness lifetime from
+# last-modified (RFC 9111 "heuristic expiration"), and mobile browsers are
+# aggressive about it — iOS Safari in particular will keep serving a stale
+# shell for hours and never send the conditional request that the etag exists
+# to answer. This is how a shipped, verified fix stays invisible on a phone
+# while being provably correct on the server.
+#
+# `no-cache` (not `no-store`) is the right directive: the response may still be
+# stored, but it must be revalidated every time. The etag then makes that a
+# cheap 304 rather than a re-download of ~115 KB.
+#
+# Only the shell is covered. /static/* keeps normal caching because those are
+# genuinely static, and the API responses set their own policy.
+_SHELL_CACHE = {
+    "Cache-Control": "no-cache, must-revalidate",
+    "Pragma": "no-cache",
+}
+
 POLL_SECONDS = 20
 
 STATE: dict = {"data": None, "error": None, "fetched": 0}
@@ -522,6 +545,31 @@ def _consist_map() -> dict:
     return merged
 
 
+@app.get("/api/alerts")
+async def api_alerts() -> dict:
+    """Rail service alerts, split into in-force now vs upcoming.
+
+    Previously unconsumed: AT publishes 161 alerts network-wide, ~12 touching
+    rail, and the map silently showed trains running to stations that were
+    closed. Rail relevance is matched on route/stop IDS, never on the alert
+    text, because station names appear constantly in bus-replacement notices.
+
+    Never 500s: `alerts.fetch()` returns the last good payload with `error`
+    set rather than raising, because an alerts outage must not break the map.
+    """
+    key = live.api_key()
+    if not key:
+        return {"now": [], "upcoming": [], "error": "no api key",
+                "total_feed": 0, "generated": 0}
+    return await alerts.fetch(
+        key,
+        rail_routes=live.RAIL_ROUTE_IDS,
+        rail_stop_ids=set(live.STOP_IDS),
+        stop_code=live.STOP_IDS,
+        station_name=live.station,
+    )
+
+
 @app.get("/api/stations")
 async def api_stations() -> dict:
     """Station list for the planner's pickers, deduped across platforms."""
@@ -541,6 +589,34 @@ def _station_codes(station: str) -> list[str]:
         return [str(par)]
     return [str(code) for code, s in (live.GEO.get("stops") or {}).items()
             if journey._base(s.get("name") or "") == station]
+
+
+def _mark_cancelled(deps: list[dict]) -> int:
+    """Flag departures AT has CANCELED or part-cancelled. Returns the count.
+
+    Only matters on the TIMETABLE fallback path: AT's own live board already
+    omits cancelled services, but our timetable reconstruction is built from
+    the baked GTFS and knows nothing about today, so without this it will
+    cheerfully promise a train that AT has already cancelled. Measured on a
+    live feed: 14 cancelled trips, one of them rail.
+
+    Matched on `trip_id`, which `board.to_departures()` and
+    `journey.departures_at()` both attach.
+    """
+    cancels = (STATE.get("data") or {}).get("cancellations") or {}
+    if not cancels:
+        return 0
+    n = 0
+    for d in deps:
+        c = cancels.get(str(d.get("trip_id") or ""))
+        if not c:
+            continue
+        if c.get("cancelled"):
+            d["cancelled"] = True
+            n += 1
+        if c.get("skipped"):
+            d["skipped_stops"] = [live.station(s) for s in c["skipped"]]
+    return n
 
 
 @app.get("/api/departures")
@@ -568,6 +644,10 @@ async def api_departures(station: str, limit: int = 8) -> JSONResponse:
         journey.attach_risk(deps, data.get("trains") or [],
                             feedback.summary(_live_trips()),
                             data.get("assignments") or {})
+        # Belt and braces: AT's live board is supposed to drop cancellations
+        # already, so this should be 0. Applied anyway because "supposed to"
+        # is not a guarantee, and a cancelled row is worse than a missing one.
+        _mark_cancelled(deps)
         return JSONResponse({"station": station, "departures": deps,
                              "source": "at-live",
                              "warming": not STATE.get("fetched")})
@@ -581,8 +661,10 @@ async def api_departures(station: str, limit: int = 8) -> JSONResponse:
     journey.attach_risk(deps, data.get("trains") or [],
                         feedback.summary(_live_trips()),
                         data.get("assignments") or {})
+    ncanc = _mark_cancelled(deps)
     return JSONResponse({"station": station, "departures": deps,
                          "source": "timetable", "live_error": err,
+                         "cancelled_shown": ncanc,
                          "warming": not STATE.get("fetched")})
 
 
@@ -664,12 +746,12 @@ async def api_admin_delete(report_id: int, request: Request) -> JSONResponse:
 
 @app.get("/admin")
 async def admin_page() -> FileResponse:
-    return FileResponse(WEB / "admin.html")
+    return FileResponse(WEB / "admin.html", headers=_SHELL_CACHE)
 
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(WEB / "index.html")
+    return FileResponse(WEB / "index.html", headers=_SHELL_CACHE)
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")

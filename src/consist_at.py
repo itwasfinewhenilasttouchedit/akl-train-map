@@ -63,9 +63,22 @@ CARRIAGES_PER_UNIT = 3      # AT's own constant
 TIMEOUT_S = 8
 MAX_WORKERS = 8
 
-# One HTTP call per live trip, and the trip set barely changes between polls,
-# so cache for a little under the 20 s poll interval. Keyed by trip_id.
-CACHE_TTL_S = 18
+# One HTTP call per live trip, keyed by trip_id.
+#
+# This was 18 s — DELIBERATELY just under the 20 s poll interval, which meant
+# every entry was always expired by the time the next poll looked at it. The
+# cache never hit once: ~34 live trips x 3 polls/min = ~147,000 calls/day.
+#
+# The TTL was wrong because the question is wrong. A trip's unit list does not
+# change DURING the trip: sets couple and uncouple at depots and termini, never
+# mid-run. We were re-asking "is this a 6-car?" every 20 s about a fact that
+# holds for the whole ~50-minute journey.
+#
+# 600 s is still far shorter than a trip, so a coupling change at a terminus is
+# picked up well before that trip_id is in service again, and a genuinely new
+# trip_id is a cache miss that gets fetched immediately. Cost: ~4,900 calls/day,
+# a 30x reduction, with no loss of accuracy.
+CACHE_TTL_S = 600
 _cache: dict[str, tuple[float, list[str]]] = {}
 
 # Fall back to the last good answer for this long if AT starts failing, so a

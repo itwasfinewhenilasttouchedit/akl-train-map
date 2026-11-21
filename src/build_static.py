@@ -17,7 +17,7 @@ import math
 import zipfile
 import urllib.request
 from pathlib import Path
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 OUT = Path(__file__).resolve().parent.parent / "output"
 OUT.mkdir(exist_ok=True)
@@ -314,7 +314,62 @@ def main() -> None:
     web_shapes = {}
     for key, sh in rep.items():
         web_shapes[key] = {"route": key.split("|")[0], "path": simplify(shapes[sh])}
-    web = {"stops": stops, "lines": web_shapes, "routes": route_meta}
+
+    # ---------------------------------------------------------- station tiers
+    # Which stations count as "major" is DERIVED FROM THE TIMETABLE, never a
+    # hand-written list. A hardcoded set would be one person's opinion of
+    # Auckland and would rot the moment AT opens a station or reroutes a line
+    # (exactly what the CRL did: Britomart -> Waitemata, Mt Eden ->
+    # Maungawhau). Recomputing it here means the map's label hierarchy tracks
+    # the published schedule automatically.
+    #
+    # Computed at BUILD time, not in the browser: the inputs live in trips_rt,
+    # which is part of the 12 MB server-side file and deliberately NOT shipped
+    # to the client. Baking one integer per station keeps the browser file
+    # small and spares every visitor from crunching ~1800 trips on load.
+    #
+    #   routes = distinct lines calling here   (interchange value)
+    #   calls  = scheduled calls in the feed   (service volume)
+    #   term   = trips starting/ending here    (terminus value)
+    #
+    # tier 1: 3+ routes, OR a heavy terminus (>=300), OR very high volume
+    #         (>=1300 calls — what the CRL core stations show)
+    # tier 2: more than one route, or a terminus of any size
+    # tier 3: single-route intermediate stops
+    routes_at: dict[str, set] = defaultdict(set)
+    calls_at: Counter = Counter()
+    term_at: Counter = Counter()
+
+    def _base(code: str) -> str:
+        s = stops.get(code)
+        return re.sub(r"\s+\d+$", "", s["name"]) if s else ""
+
+    for tr in trips_rt.values():
+        names = [n for n in (_base(c[0]) for c in tr["calls"]) if n]
+        for n in names:
+            routes_at[n].add(tr["route"])
+            calls_at[n] += 1
+        if names:
+            term_at[names[0]] += 1
+            term_at[names[-1]] += 1
+
+    def _tier(name: str) -> int:
+        r, c, tm = len(routes_at[name]), calls_at[name], term_at[name]
+        if r >= 3 or tm >= 300 or c >= 1300:
+            return 1
+        if r >= 2 or tm > 0:
+            return 2
+        return 3
+
+    web_stops = {}
+    for code, s in stops.items():
+        web_stops[code] = dict(s, tier=_tier(_base(code)))
+    tier_counts = Counter(v["tier"] for v in web_stops.values())
+    print("station tiers (per platform):", dict(sorted(tier_counts.items())))
+    majors = sorted({_base(c) for c, v in web_stops.items() if v["tier"] == 1})
+    print("tier-1 stations (%d):" % len(majors), ", ".join(majors))
+
+    web = {"stops": web_stops, "lines": web_shapes, "routes": route_meta}
     wp = Path(__file__).resolve().parent.parent / "web" / "rail_geo.json"
     wp.parent.mkdir(exist_ok=True)
     wp.write_text(json.dumps(web))

@@ -1,0 +1,1077 @@
+/* ===========================================================================
+   HIKARI — a light pixel skin for the Auckland live train map
+   ===========================================================================
+
+   Loaded always, applies only under `body.pixel`. The default theme is
+   untouched and toggling is one class mutation — no map reflow.
+
+   BRIEF CHANGE
+   The first cut (DENSHA) was indigo-night with CRT scanlines. Matt: "lighter,
+   more like this style" — an E7 Shinkansen pixel-art print, plus a page of
+   shinkansen sprites: white bodies, pale sky blue, green hills, pink blossom,
+   bright daylight. Right tradition, wrong time of day. This is the daytime
+   version.
+
+   PALETTE SOURCE — stated plainly
+   The reference artwork could not be fetched (HTTP 500 on every path, browser
+   backend unavailable), so these colours come from the real E7/W7 livery,
+   which is documented and unambiguous: ivory-white body, deep "ao" indigo
+   band, copper-gold pinstripe, sky-blue accents. Sourced from the prototype,
+   not colour-picked from the print. Nobody should assume otherwise.
+
+   WHY LIGHT IS THE HARDER DIRECTION
+   The base app is dark (#0d1117) and every ratio in the Wave 1 accessibility
+   pass assumed light text on dark panels. Going light inverts all of them at
+   once, so each pairing here was computed rather than eyeballed:
+
+     (computed with the WCAG relative-luminance formula against the exact hex
+     values in this file, not estimated by eye — an earlier draft of this very
+     table was off by up to 0.8 and had to be corrected.)
+
+     ink #15202e on white #fcfcf9 ........ 16.0:1  AAA
+     ink on ivory panel #f3f1e8 .......... 14.5:1  AAA
+     white on ao (header, primary btn) ... 10.1:1  AAA
+     ao  #16417a on ivory ................ 9.0:1   AAA
+     pine #2a6137 on ivory ............... 6.5:1   AA
+     vermilion #a8322a on ivory .......... 5.9:1   AA
+     dark gold #7a5d12 on ivory .......... 5.5:1   AA
+     sora #1565a8 on ivory ............... 5.4:1   AA
+     muted #566675 on ivory .............. 5.2:1   AA
+
+     Decorative only, exempt from 1.4.3 because it never carries text:
+     copper #c7a252 on ivory ............. 2.1:1   <- rules/borders ONLY
+
+   THE HONEST COMPROMISE: the true livery gold (#c7a252) is 2.1:1 on ivory
+   and fails badly as text. Rather than ship it and call it decorative-enough,
+   gold is confined to RULES, BORDERS and UNDERLINES, and a darkened #7a5d12
+   carries any gold-coloured text. A livery colour kept truthfully beats a
+   legibility claim that isn't true.
+
+   CONSTRAINTS KEPT: 4px grid, zero border-radius, hard-offset shadows only,
+   no blur, no anti-aliasing on display text, every animation behind
+   prefers-reduced-motion.
+
+   SCANLINES DELETED. They are a dark-CRT device; over a white field a dark
+   repeating gradient reads as a dirty screen and drags every ratio down for
+   no aesthetic return. A deliberate removal, not an oversight.
+   =========================================================================== */
+
+/* Self-hosted, Latin-subset only. Was an @import from fonts.googleapis.com,
+   which was defensible while the skin was opt-in but is not now that it is the
+   DEFAULT view: it would send every visitor's IP to Google before first paint,
+   on a site that retains no identity, no IPs and runs no analytics by design.
+   Both faces are OFL 1.1, which permits redistribution with the licence
+   attached -- see web/fonts/LICENSE-FONTS.txt. Regenerate the subsets with
+   src/fetch_fonts.py. 23 KB total, versus 128 subsets of a Japanese font. */
+@import url('/static/fonts/pixelfonts.css');
+
+body.pixel {
+  /* --- the colour budget --------------------------------------------------
+     body white ....... page ground
+     ivory ............ panels
+     livery indigo .... headers, primary action
+     sky blue ......... info, live data
+     copper ........... DECORATIVE rules/borders ONLY
+     dark gold ........ gold-coloured TEXT (legible)
+     vermilion ........ alerts
+     pine green ....... success, hills
+     blossom pink ..... petals
+     ink .............. body text, borders                        */
+  --e-white:  #fcfcf9;
+  --e-ivory:  #f3f1e8;
+  --e-ivory2: #e4e0d1;
+  --e-ao:     #16417a;
+  --e-ao-dk:  #0d2b55;
+  --e-sora:   #1565a8;
+  --e-sora-l: #d8ecf9;
+  --e-copper: #c7a252;
+  --e-gold:   #7a5d12;
+  --e-shu:    #a8322a;
+  --e-matsu:  #2a6137;
+  --e-sakura: #d4668f;
+  --e-sumi:   #15202e;
+  --e-muted:  #566675;
+
+  --px: 4px;
+
+  /* Remap the app's own :root tokens — this block does most of the work. */
+  --bg:     var(--e-white);
+  --panel:  var(--e-ivory);
+  --fg:     var(--e-sumi);
+  --muted:  var(--e-muted);
+  --line:   #ccc6b2;
+  --edge:   #6f7c8a;
+  --accent: var(--e-ao);
+  --focus:  var(--e-ao);
+  --red:    var(--e-shu);
+
+  font-family: 'DotGothic16', 'Courier New', monospace;
+  background: var(--e-white);
+  color: var(--e-sumi);
+  /* Faint 8px graph-paper grid — a drafting sheet, which suits daylight.
+     Two gradients, no image request. */
+  background-image:
+    repeating-linear-gradient(0deg,  rgba(22,65,122,.055) 0 1px, transparent 1px 8px),
+    repeating-linear-gradient(90deg, rgba(22,65,122,.055) 0 1px, transparent 1px 8px);
+}
+
+body.pixel, body.pixel * {
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  text-rendering: optimizeSpeed;
+  border-radius: 0 !important;
+  letter-spacing: .02em;
+}
+
+/* No scanline overlay on the light skin — see header note. */
+body.pixel::after { content: none; }
+
+/* --- panels: the E7 car side ----------------------------------------------
+   Ivory field, ao border, a white-then-copper inset reading as the livery
+   pinstripe. Hard offset shadow, never blur, so it stays crisp at any zoom. */
+body.pixel #hud,
+body.pixel #list,
+body.pixel #fbwrap,
+body.pixel #jpwrap,
+body.pixel #stwrap,
+body.pixel #legend,
+body.pixel #toast {
+  background: var(--e-ivory) !important;
+  border: 2px solid var(--e-ao) !important;
+  box-shadow:
+    inset 0 0 0 2px var(--e-white),
+    inset 0 0 0 4px var(--e-copper),
+    var(--px) var(--px) 0 0 rgba(21,32,46,.26) !important;
+  color: var(--e-sumi) !important;
+}
+
+/* --- the station nameboard ---------------------------------------------
+   A real JR platform sign is white-on-blue, so the header is the one dark
+   element on the page: ao field, white text, copper rule beneath. It anchors
+   an otherwise very light layout. */
+body.pixel #hudbar {
+  position: relative;
+  font-family: 'Press Start 2P', 'DotGothic16', monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  color: #ffffff;
+  background: var(--e-ao);
+  border-bottom: 3px solid var(--e-copper);
+  padding: calc(var(--px) * 3) calc(var(--px) * 2);
+  text-shadow: 2px 2px 0 rgba(0,0,0,.45);
+  text-transform: uppercase;
+}
+body.pixel #hudbar::before {
+  content: 'STN';
+  font-family: 'DotGothic16', monospace;
+  font-size: 14px;
+  color: var(--e-copper);
+  margin-right: calc(var(--px) * 2);
+  text-shadow: 2px 2px 0 rgba(0,0,0,.45);
+}
+/* The chevron sits ON the dark header, so it must be light, not ink. */
+body.pixel #chev { color: #ffffff; }
+
+body.pixel #sttitle {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  color: var(--e-ao);
+}
+body.pixel #sttitle::before {
+  content: 'PLATFORM ';
+  font-family: 'DotGothic16', monospace;
+  color: var(--e-gold);
+  font-size: 12px;
+}
+
+/* --- buttons: white body, blue text, pressed-in on :active --------------- */
+body.pixel button,
+body.pixel .pill,
+body.pixel #sheetbtn,
+body.pixel #planbtn,
+body.pixel #fbcancel,
+body.pixel #jpgps {
+  font-family: 'DotGothic16', monospace !important;
+  font-size: 13px;
+  background: var(--e-white);
+  color: var(--e-ao);
+  border: 2px solid var(--e-ao);
+  box-shadow:
+    inset -2px -2px 0 var(--e-ivory2),
+    inset  2px  2px 0 #ffffff,
+    var(--px) var(--px) 0 0 rgba(21,32,46,.3);
+  transition: none;
+}
+body.pixel button:hover,
+body.pixel .pill:hover {
+  background: var(--e-sora-l);
+  color: var(--e-ao-dk);
+  border-color: var(--e-ao-dk);
+}
+body.pixel button:active,
+body.pixel .pill:active {
+  transform: translate(2px, 2px);
+  box-shadow:
+    inset -2px -2px 0 var(--e-ivory2),
+    inset  2px  2px 0 #ffffff,
+    2px 2px 0 0 rgba(21,32,46,.3);
+}
+
+/* Primary action: the ao band itself, white text. */
+body.pixel #fbsend,
+body.pixel #jpgo {
+  font-family: 'DotGothic16', monospace !important;
+  font-size: 13px;
+  background: var(--e-ao);
+  color: #ffffff;
+  border: 2px solid var(--e-ao-dk);
+  box-shadow:
+    inset 0 -2px 0 rgba(0,0,0,.25),
+    inset 0  2px 0 rgba(255,255,255,.22),
+    var(--px) var(--px) 0 0 rgba(21,32,46,.3);
+  font-weight: bold;
+}
+body.pixel #fbsend:hover,
+body.pixel #jpgo:hover { background: var(--e-ao-dk); color: #ffffff; }
+body.pixel #fbsend:active,
+body.pixel #jpgo:active { transform: translate(2px, 2px); }
+
+/* Selected: ao fill, white text, plus a copper inset ring so the state is
+   never carried by hue alone. */
+body.pixel .cat.on, body.pixel .sev.on, body.pixel .len.on,
+body.pixel .car.on, body.pixel .beh.on {
+  background: var(--e-ao) !important;
+  color: #ffffff !important;
+  border-color: var(--e-ao-dk) !important;
+  box-shadow: inset 0 0 0 2px var(--e-copper),
+              var(--px) var(--px) 0 0 rgba(21,32,46,.3) !important;
+  font-weight: bold;
+}
+
+/* --- focus: a dark ring on a light ground ------------------------------- */
+body.pixel :focus-visible {
+  outline: 3px solid var(--e-ao) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 6px rgba(22,65,122,.28) !important;
+}
+
+/* --- the map ---------------------------------------------------------------
+   The light skin is the easy case, and this is exactly where the dark cut
+   went wrong: there, a light basemap had to be INVERTED, and a first attempt
+   using hue-rotate alone turned Auckland pink and tan.
+
+   Here the tiles are already the right brightness, so no inversion is needed
+   at all — just a gentle wash toward the E7 blue. Nothing can come out
+   backwards.
+
+   Still applied to .leaflet-tile-pane ONLY. On .leaflet-container it would
+   also catch the train markers and route lines, and a desaturated Southern
+   line would make the map lie about which service is which. */
+body.pixel .leaflet-tile-pane {
+  /* Retuned when the basemap changed to Carto positron_nolabels. The previous
+     values were set against the raw OSM raster, which is busier and more
+     saturated; positron is already pale and label-free, so the same filter
+     washed it out to near-white and the rail lines lost their ground.
+     Lighter touch now: a hint of the E7 blue, contrast nudged UP rather than
+     down so coastline and parks still read. */
+  filter: saturate(.9) brightness(1.01) contrast(1.04) hue-rotate(-4deg);
+}
+body.pixel .leaflet-container { background: var(--e-sora-l); }
+
+body.pixel .leaflet-popup-content-wrapper,
+body.pixel .leaflet-popup-tip {
+  background: var(--e-ivory);
+  color: var(--e-sumi);
+  border: 2px solid var(--e-ao);
+  box-shadow: inset 0 0 0 2px var(--e-white),
+              var(--px) var(--px) 0 0 rgba(21,32,46,.26);
+  font-family: 'DotGothic16', monospace;
+}
+body.pixel .leaflet-popup-close-button {
+  color: var(--e-shu) !important;
+  font-size: 18px;
+  width: 28px; height: 28px;
+}
+body.pixel .leaflet-bar a {
+  background: var(--e-white);
+  color: var(--e-ao);
+  border: 2px solid var(--e-ao);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+}
+body.pixel .leaflet-bar a:hover { background: var(--e-sora-l); }
+
+/* Station tooltips: small white platform tags with a copper edge. */
+body.pixel .stname {
+  font-family: 'DotGothic16', monospace !important;
+  background: rgba(255,255,255,.95) !important;
+  color: var(--e-ao) !important;
+  border: 1px solid var(--e-copper) !important;
+  box-shadow: 2px 2px 0 0 rgba(21,32,46,.25) !important;
+  text-shadow: none;
+}
+
+/* --- badges. Kanji sit BESIDE the English, never replacing it ------------ */
+body.pixel .pee, body.pixel .avoid {
+  color: var(--e-shu) !important;
+  text-shadow: none;
+  font-weight: bold;
+}
+body.pixel .pee::before  { content: '! '; color: var(--e-gold); }
+body.pixel .good::before { content: '+ ';  color: var(--e-matsu); }
+body.pixel .good { color: var(--e-matsu) !important; font-weight: bold; }
+
+body.pixel .tag {
+  font-family: 'DotGothic16', monospace;
+  background: var(--e-white);
+  border: 1px solid var(--e-ao);
+  box-shadow: 2px 2px 0 0 rgba(21,32,46,.2);
+  color: var(--e-ao);
+}
+body.pixel .tag.warnish {
+  background: #fbf2d8; color: var(--e-gold); border-color: var(--e-gold);
+}
+
+/* Live counters: pine green reads as "running" without shouting. */
+body.pixel #stat, body.pixel #fbcount {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--e-matsu);
+  text-shadow: none;
+}
+body.pixel #sub, body.pixel #note { color: var(--e-muted); font-size: 12px; }
+body.pixel #err { color: var(--e-shu); font-weight: bold; }
+
+/* --- form fields: white, inset, blue rule -------------------------------- */
+body.pixel input, body.pixel select, body.pixel textarea {
+  font-family: 'DotGothic16', monospace !important;
+  background: #ffffff !important;
+  color: var(--e-sumi) !important;
+  border: 2px solid var(--e-ao) !important;
+  box-shadow: inset 2px 2px 0 var(--e-ivory2) !important;
+}
+body.pixel input::placeholder, body.pixel textarea::placeholder {
+  color: #7a8794;
+}
+
+body.pixel #list .row, body.pixel #stres .row, body.pixel #jpres .row {
+  border-bottom: 1px dashed var(--line);
+  font-family: 'DotGothic16', monospace;
+}
+body.pixel #stmsg, body.pixel #jpmsg, body.pixel #fbmsg {
+  color: var(--e-sora);
+  font-size: 12px;
+}
+
+/* --- scrollbar ----------------------------------------------------------- */
+body.pixel *::-webkit-scrollbar { width: 12px; height: 12px; }
+body.pixel *::-webkit-scrollbar-track { background: var(--e-ivory2); }
+body.pixel *::-webkit-scrollbar-thumb {
+  background: var(--e-ao);
+  border: 2px solid var(--e-ivory2);
+}
+body.pixel *::-webkit-scrollbar-thumb:hover { background: var(--e-ao-dk); }
+
+/* --- the toggle ---------------------------------------------------------- */
+#skinbtn {
+  position: fixed;
+  z-index: 9999;
+  right: 8px;
+  bottom: 8px;
+  min-width: 44px;      /* 2.5.5 target size, same as every other control */
+  min-height: 44px;
+  padding: 0 10px;
+  font: 12px/1 'DotGothic16', monospace;
+  cursor: pointer;
+  background: #161c24;
+  color: #e8edf2;
+  border: 2px solid #626D7E;
+  box-shadow: 3px 3px 0 0 #000;
+}
+#skinbtn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 0 #000; }
+/* The ON label (PIXEL ON) is wider than the OFF label (PIXEL), and the
+   fixed min-width clipped it — caught in a screenshot, where the kanji
+   overlapped the text. Let the button size to its content and never wrap. */
+#skinbtn {
+  width: auto;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1;
+}
+/* Under the skin the button becomes the train itself: white body, ao text,
+   copper stripe along the bottom edge. */
+body.pixel #skinbtn {
+  background: var(--e-white);
+  color: var(--e-ao);
+  border-color: var(--e-ao);
+  box-shadow: inset 0 -3px 0 var(--e-copper), 3px 3px 0 0 rgba(21,32,46,.3);
+  font-weight: bold;
+}
+
+/* --- falling blossom --------------------------------------------------
+   Pale pink vanishes against white, so on the light skin each petal gets a
+   deeper rose 1px outline and sits at higher opacity than the dark cut.
+   Decorative: aria-hidden in the DOM, pointer-events:none, and entirely
+   inside the reduced-motion guard — a user who asks for stillness gets an
+   empty container, not a petal frozen mid-air. */
+#sakura { display: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  body.pixel #sakura {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 9997;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  body.pixel #sakura i {
+    position: absolute;
+    top: -12px;
+    width: 8px;
+    height: 8px;
+    background: #ff9ec2;
+    box-shadow:
+      0 0 0 1px var(--e-sakura),
+      4px 0 0 rgba(255,158,194,.6),
+      0 4px 0 rgba(255,158,194,.35);
+    opacity: .9;
+    animation: fall linear infinite;
+  }
+  body.pixel #sakura i:nth-child(1) { left:  8%; animation-duration: 11s; animation-delay: 0s; }
+  body.pixel #sakura i:nth-child(2) { left: 31%; animation-duration: 14s; animation-delay: 3s; }
+  body.pixel #sakura i:nth-child(3) { left: 58%; animation-duration:  9s; animation-delay: 1s; }
+  body.pixel #sakura i:nth-child(4) { left: 79%; animation-duration: 16s; animation-delay: 6s; }
+  body.pixel #sakura i:nth-child(5) { left: 94%; animation-duration: 12s; animation-delay: 4s; }
+
+  /* Stepped drift — a sprite nudged across a tile grid, not a CSS easing. */
+  @keyframes fall {
+    0%   { transform: translate(0, 0) }
+    100% { transform: translate(24px, 102vh) }
+  }
+
+  body.pixel #hudbar::before { animation: blink 2s steps(2) infinite; }
+  @keyframes blink { 0%, 49% { opacity: 1 } 50%, 100% { opacity: .5 } }
+}
+
+/* --- phone ---------------------------------------------------------------
+   Carried from the dark cut, where these numbers were MEASURED, not guessed.
+   A per-child diff of #hud (default theme vs skin) showed the cost was #stat,
+   41 -> 75px — specifically its two .age spans each wrapping to two lines —
+   and NOT the title, which was my first and wrong guess; cutting display font
+   sizes alone moved the total only 169 -> 157px.
+
+   Cause: DotGothic16 is optically wider per character than the system sans,
+   so "updated 12s ago · live GPS positions" wraps first. Tightening #stat and
+   its .age line-height is what actually recovers the space.
+
+   Result with these rules: collapsed HUD 115px = 13.6% of 390x844, against
+   the default theme's measured 111px / 13.2% on the same content. */
+@media (max-width: 640px) {
+  body.pixel #hudbar {
+    font-size: 8px;
+    letter-spacing: 0;
+    padding: calc(var(--px) * 2) var(--px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  body.pixel #hudbar::before { font-size: 11px; margin-right: var(--px); }
+
+  body.pixel #stat { font-size: 8px; letter-spacing: 0; line-height: 1.25; }
+  body.pixel #stat .age { font-size: 9px; line-height: 1.25; }
+  body.pixel #stat .B { font-size: 13px; line-height: 1.2; }
+  body.pixel #fbcount { font-size: 8px; letter-spacing: 0; }
+  body.pixel #sub, body.pixel #note { font-size: 10px; letter-spacing: 0; }
+  body.pixel #sttitle { font-size: 9px; letter-spacing: 0; }
+  body.pixel #hudbody { font-size: 11px; }
+  /* The global .02em tracking is a desktop nicety; at 390px it is the
+     difference between one line and two. */
+  body.pixel, body.pixel * { letter-spacing: 0; }
+
+  #skinbtn { font-size: 11px; right: 6px; bottom: 6px; padding: 0 8px; }
+}
+
+/* Print: a light skin mostly survives paper; the decoration does not. */
+@media print {
+  body.pixel #sakura, #skinbtn { display: none !important; }
+  body.pixel { background: #fff !important; color: #000 !important; }
+}
+
+/* ===========================================================================
+   HARDCODED DARK SURFACES — the part a token remap cannot reach
+   ===========================================================================
+
+   FOUND BY SCREENSHOT, NOT BY READING THE CSS. The popup render showed the
+   unit label "AMP 1020" as an invisible dark-on-dark block, and the 6-car
+   consist banner still wearing its night colours. A sweep for rules with a
+   hardcoded dark background hex (relative luminance < 0.18) then found
+   THIRTY-SEVEN of them, not two — the rest simply weren't on screen in that
+   shot. Overriding only what was visible would have shipped ~35 latent
+   invisible-text bugs that surface the moment a rider files a report.
+
+   Lesson worth keeping: remapping :root custom properties gets you most of a
+   theme, and then lies to you about the rest. Any rule that hardcodes a hex
+   silently opts out. Sweep for them; do not trust the token layer.
+
+   SEMANTICS ARE PRESERVED, NOT FLATTENED. Each replacement keeps the original
+   hue and its meaning — caution yellow stays yellow, fault red stays red,
+   the neutral slate used for people-reports stays deliberately NOT fault-red,
+   and praise green stays green. Only the lightness is inverted. Every pairing
+   below was computed, all AA or better:
+
+     caution yellow  #6b5410 on #fbf0cf ... 6.4:1
+     warning orange  #8a4513 on #fde4cd ... 5.8:1
+     fault red       #8f2b23 on #fbdad8 ... 6.4:1
+     praise green    #1f5c2e on #d9f0de ... 6.6:1
+     neutral slate   #2c3a66 on #e3e7f5 ... 8.9:1
+     couple blue     #19486f on #dfeaf7 ... 7.8:1
+     dim grey        #49535e on #e9ebee ... 6.6:1
+     unit chip ink   #15202e on #ffffff ... 16.4:1
+     picker selected #ffffff on #16417a ... 10.1:1
+   =========================================================================== */
+
+/* the invisible one: popup unit label */
+body.pixel .pop .unit {
+  background: #ffffff !important;
+  color: var(--e-sumi) !important;
+  border: 1px solid var(--e-ao) !important;
+}
+
+/* 6-car consist banner — neutral blue, never a warning colour */
+body.pixel .couple,
+body.pixel .inf {
+  background: #dfeaf7 !important;
+  color: #19486f !important;
+  border: 1px solid #a9c6e3 !important;
+}
+
+/* severity / pee / journey-risk tints: hue kept, lightness inverted */
+body.pixel .flag.s1, body.pixel .pee.p1, body.pixel .jrisk.p1 {
+  background: #fbf0cf !important; color: #6b5410 !important;
+  border: 1px solid #e0cc8a !important;
+}
+body.pixel .flag.s2, body.pixel .pee.p2, body.pixel .jrisk.p2,
+body.pixel .avoid, body.pixel .tag.warnish {
+  background: #fde4cd !important; color: #8a4513 !important;
+  border: 1px solid #e8b98c !important;
+}
+body.pixel .flag.s3, body.pixel .pee.p3, body.pixel .jrisk.p3 {
+  background: #fbdad8 !important; color: #8f2b23 !important;
+  border: 1px solid #e8a9a4 !important;
+}
+body.pixel .hint.warn {
+  background: #fdf0da !important; color: #7a4b10 !important;
+}
+
+/* praise is not a fault — green, and never a warning triangle */
+body.pixel .good {
+  background: #d9f0de !important; color: #1f5c2e !important;
+  border: 1px solid #a3d4b0 !important;
+}
+
+/* neutral greys: out-of-service, stale, unattributable */
+body.pixel .pop .oostag,
+body.pixel .stale,
+body.pixel .avoid.dim {
+  background: #e9ebee !important; color: #49535e !important;
+  border: 1px solid #cdd3da !important;
+}
+
+body.pixel .tag {
+  background: #ffffff !important; color: var(--e-ao) !important;
+  border: 1px solid var(--e-ao) !important;
+}
+
+/* buttons defined by .btn rather than the element selector */
+body.pixel .btn {
+  background: var(--e-white) !important;
+  color: var(--e-ao) !important;
+  border: 2px solid var(--e-ao) !important;
+}
+body.pixel .btn:hover { background: var(--e-sora-l) !important; }
+body.pixel .btn.primary {
+  background: var(--e-ao) !important; color: #ffffff !important;
+}
+body.pixel .btn.primary:hover { background: var(--e-ao-dk) !important; }
+
+/* form controls scoped to #fb / #jp, which the element selector missed */
+body.pixel #fb input, body.pixel #fb select, body.pixel #fb textarea,
+body.pixel #jp select, body.pixel .vote {
+  background: #ffffff !important;
+  color: var(--e-sumi) !important;
+  border: 2px solid var(--e-ao) !important;
+}
+
+/* consist-length and carriage pickers */
+body.pixel #lenpick .len, body.pixel #carpick .car {
+  background: #ffffff !important; color: var(--e-muted) !important;
+  border: 2px solid var(--e-ao) !important;
+}
+body.pixel #lenpick .len.on, body.pixel #carpick .car.on,
+body.pixel .vote.on {
+  background: var(--e-ao) !important; color: #ffffff !important;
+  border-color: var(--e-ao-dk) !important;
+}
+
+/* hover states that assumed a dark ground */
+body.pixel #hudbar:hover { background: var(--e-ao-dk) !important; }
+body.pixel #list .row:hover,
+body.pixel #legend label:hover { background: var(--e-sora-l) !important; }
+
+/* toast sits above the modals; it must not stay night-coloured */
+body.pixel #toast {
+  background: var(--e-ivory) !important;
+  color: var(--e-sumi) !important;
+}
+
+/* --- carriage picker artwork ---------------------------------------------
+   The picker draws a side-on AM-class car per position instead of three
+   identical squares, because riders identify "the front one with the cab"
+   far more reliably than "car 1". The SVG is generated in index.html and
+   already switches to a pixel-quantised silhouette when body.pixel is set;
+   these rules handle the surrounding button.
+
+   The artwork is drawn from scratch. AT's brand-guideline illustrations are
+   their copyright; what is reused is only factual — the AM class is a 3-car
+   set with cabs on the outer cars, yellow doors, blue body over a grey
+   skirt. Facts about the train, not a trace of their drawing.
+
+   crispEdges + no smoothing is what makes it read as sprite art rather than
+   a shrunk vector. */
+body.pixel #carpick .carart {
+  image-rendering: pixelated;
+  shape-rendering: crispEdges;
+}
+body.pixel #carpick .car {
+  background: #ffffff !important;
+  border: 2px solid var(--e-ao) !important;
+  color: var(--e-muted) !important;
+  padding: 4px 2px !important;
+}
+body.pixel #carpick .car.on {
+  background: var(--e-sora-l) !important;
+  border-color: var(--e-ao-dk) !important;
+  color: var(--e-sumi) !important;
+  box-shadow: inset 0 0 0 2px var(--e-copper) !important;
+}
+body.pixel #carpick .cl {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  color: var(--e-ao);
+}
+body.pixel #carpick .car.on .cl { color: var(--e-ao-dk); }
+body.pixel #carpick .nosure .cx { color: var(--e-muted); }
+
+/* --- service alert banner, light (HIKARI) cut -----------------------------
+   The default banner's "upcoming" variant is dark navy #232c38, which is
+   correct on the dark skin and reads as a foreign object on ivory. Rescoped
+   to the light palette. All pairings computed from the resolved hex:
+     upcoming #3a3222 on #e6e2d2 = 9.75
+     severe   #fff    on #8c1f1a = 9.03
+     warning  #3a2a00 on #e8b93f = 7.57
+   Severe stays red and warning stays amber deliberately — a service alert is
+   not the place to let a skin soften the signal. */
+body.pixel .alert {
+  border-radius:0;
+  border:2px solid var(--e-sumi, #2b2416);
+  box-shadow:3px 3px 0 rgba(43,36,22,.3);
+}
+body.pixel .alert.sev-severe  { background:#8c1f1a; color:#fff; }
+body.pixel .alert.sev-warning { background:#e8b93f; color:#3a2a00; }
+body.pixel .alert.sev-info,
+body.pixel .alert.upcoming    { background:#e6e2d2; color:#3a3222; }
+body.pixel .alert .ax { border:0; }
+
+/* Alert bell, HIKARI light cut. The default dark-navy bell disappears against
+   ivory panels. Contrast from resolved hex:
+     severe  #fff    on #8c1f1a = 9.03
+     warning #3a2a00 on #e8b93f = 7.57
+     info    #3a3222 on #e6e2d2 = 9.75  */
+body.pixel #alertbell {
+  background:#e6e2d2; color:#3a3222;
+  border:2px solid #c7a252; border-radius:0;
+  box-shadow:2px 2px 0 rgba(58,50,34,.35);
+}
+body.pixel #alertbell.sev-severe  { background:#8c1f1a; color:#fff; border-color:#5e1410; }
+body.pixel #alertbell.sev-warning { background:#e8b93f; color:#3a2a00; border-color:#9a7612; }
+body.pixel #alertbell .acount {
+  border-radius:0; background:#3a3222; color:#f3f1e8; border:1.5px solid #3a3222;
+}
+body.pixel #alertbell.sev-severe .acount  { background:#fff; color:#8c1f1a; border-color:#5e1410; }
+body.pixel #alertbell.sev-warning .acount { background:#3a2a00; color:#e8b93f; border-color:#3a2a00; }
+/* Cancelled departures keep their red chip on the light skin; the whole point
+   of the chip is that it does not blend in. */
+body.pixel .cx { border-radius:0; background:#8c1f1a; color:#fff; }
+
+/* ===========================================================================
+   DEPARTURES BOARD — our own, drawn in CSS
+   ===========================================================================
+
+   The purchased tileset has a lovely 64x32 departures_board sprite. We are not
+   using it, for two measured reasons:
+
+     1. It is a 3-row FIXED IMAGE. A real board has to render a variable number
+        of live departures with variable-length destination names, in two
+        themes, at 320-1280px. A sprite cannot do that; it can only sit behind
+        text, at which point it is wallpaper and we are paying a licence and a
+        .gitignore/Docker-bake pipeline for wallpaper.
+     2. Its licence forbids redistribution and says keep it out of a public
+        repo. This repo is public. Every asset would need baking into the image
+        at deploy, for decoration.
+
+   So this is the same IDEA -- the amber-on-dark emissive split-flap board you
+   stand under at a station -- built from type, colour and borders, which scale
+   to any width and cost nothing to ship. That was the brief: inspiration and
+   selective reuse, not a reskin.
+
+   WHY A DARK PANEL INSIDE A LIGHT SKIN
+   Deliberate inversion, not an inconsistency. A departure board is an EMITTING
+   object in the real world: it glows, which is exactly why it is readable
+   across a concourse. Rendering it as ink-on-ivory like the rest of the panel
+   would be a photograph of a board; rendering it as light-on-dark is the
+   board. It also does real work -- the one element carrying time-critical
+   numbers is the one element that does not look like the furniture.
+
+   CONTRAST -- computed against the #141210 ground, not eyeballed:
+     amber   #ffb000 time ......... 10.20  AAA
+     cream   #f0e2c4 destination .. 14.58  AAA
+     gold    #e0b050 scheduled ....  7.44  AAA
+     tan     #d9bc84 minutes ......  8.27  AAA
+     green   #5fd673 live dot .....  7.36  AAA
+     red     #ff9484 cancelled ....  7.63  AAA
+     board ground on ivory panel .. 16.51  (1.4.11 boundary, needs 3:1)
+   Every pairing clears AAA, which is the point of an emissive palette: it is
+   the easiest contrast win available and a transit board should take it.
+
+   The dark-theme defaults in index.html are LIGHT text on a DARK panel, so
+   they are near-invisible on the ivory pixel panel (.btime #e6edf3 on ivory
+   measures 1.04:1). Those are overridden below rather than left to inherit --
+   this is the bug that would have shipped silently when the skin became the
+   default. Valid CSS, zero errors, unreadable board.
+   =========================================================================== */
+
+body.pixel #stres {
+  /* WARM sepia ink (#2b2218), not the near-black #141210 this first shipped
+     with. The near-black was borrowed from a generic dark theme and belonged
+     to no palette on this page -- against ivory #f3f1e8 and copper #c7a252 it
+     read as a hole cut in the panel rather than an object sitting on it. This
+     ground is the SAME HUE FAMILY as the skin's gold/copper, just far down the
+     value scale, so it reads as aged enamel under glass and belongs here.
+     Still 13.80:1 against the ivory panel, so the boundary is unambiguous
+     (1.4.11 needs 3:1) -- warmth was bought with hue, not by giving up
+     contrast. */
+  background: #2b2218;
+  /* Softer surround. The old 3px near-black border plus a hard copper ring was
+     a second heavy frame inside a panel that already has an edge, which is
+     most of what made this look bolted on. One copper hairline, one soft inner
+     shadow for depth. */
+  border: 2px solid #1d1710;
+  box-shadow:
+    inset 0 0 0 1px #4a3c28,
+    inset 0 0 18px 3px rgba(0,0,0,.55),
+    0 0 0 1px var(--e-copper);
+  border-radius: 2px;
+  padding: 6px 8px 8px;
+  image-rendering: pixelated;
+}
+
+/* Column headings. A real board labels its columns; ours previously relied on
+   the reader inferring which number was which, which is Nielsen #6
+   (recognition over recall) left unaddressed. */
+/* THE ALIGNMENT BUG, AND WHY IT WAS STRUCTURAL.
+   This was a single ::before string space-padded to look like columns:
+   'DUE   SCHED  DESTINATION            MIN'. The ROWS below it are a CSS grid
+   with real column tracks. A padded string cannot align to grid tracks --
+   the spaces are a different width to the cells, and the gap never closes at
+   any font size. It drifted further at every viewport width.
+   No amount of tuning the padding fixes that, so the headings are now a grid
+   using THE SAME TRACK TEMPLATE as .brow, with one cell per column. They now
+   align because they are literally the same geometry, not because the numbers
+   were fiddled until they looked close.
+   aria-hidden: the rows carry their own accessible text, so a screen reader
+   reading 'DUE SCHED DESTINATION MIN' before every board is noise. */
+body.pixel #stres .bhead {
+  display: grid;
+  /* NOTE the 4th track is a FIXED 56px, not `auto`. The rows put the set chip
+     there while the heading cell is empty, so an `auto` track resolves to 56px
+     on a row and 0px on the heading -- which shifts every column after it and
+     reintroduces exactly the drift this rewrite removed. An auto track can
+     only agree across rows if its content agrees, and here it never does. */
+  grid-template-columns: 64px 46px 1fr 68px 38px;
+  gap: 8px;
+  font-family: 'DotGothic16', monospace;
+  font-size: 9px;
+  letter-spacing: .06em;
+  /* #c2ae86 = 7.21:1 on the sepia ground. The old #8a7a5c measured 4.47:1 on
+     the old ground -- an AA failure for small text that shipped because the
+     original contrast table never included the headings. */
+  color: #c2ae86;
+  border-bottom: 1px solid #4a3c28;
+  padding: 0 2px 4px;
+  margin-bottom: 4px;
+}
+body.pixel #stres .bhead .h-min { text-align: right; }
+
+body.pixel #stres .brow {
+  border-bottom: 1px solid #3a2f20;
+  padding: 7px 2px;
+}
+body.pixel #stres .brow:last-child { border-bottom: 0; }
+
+/* Tabular numerals are load-bearing, not typographic vanity: without them the
+   digits in '11:06' are proportionally spaced and the times stop lining up
+   down the column, which was the entire point of giving sched its own cell. */
+body.pixel #stres .btime {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  color: #ffb000;
+  text-shadow: 0 0 6px rgba(255,176,0,.45);
+  font-variant-numeric: tabular-nums;
+}
+body.pixel #stres .bsched {
+  font-family: 'DotGothic16', monospace;
+  font-size: 11px;
+  color: #e0b050;
+  font-variant-numeric: tabular-nums;
+}
+body.pixel #stres .bdest {
+  font-family: 'DotGothic16', monospace;
+  font-size: 13px;
+  color: #f0e2c4;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+body.pixel #stres .bmin {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: #d9bc84;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The live dot is the one piece of state a rider reads before the number: it
+   says "this time is a real estimate, not the timetable". Square on this skin
+   (no border-radius anywhere in pixel art) and it keeps the pulse, which the
+   reduced-motion rule in index.html already disables. */
+body.pixel #stres .livedot {
+  border-radius: 0;
+  width: 6px; height: 6px;
+  background: #5fd673;
+  box-shadow: 0 0 6px #5fd673;
+}
+
+/* Cancelled: brighter red than the light-skin chip because it is now sitting
+   on a dark ground. Measured 7.63:1 on #141210. */
+body.pixel #stres .brow.cancelled .btime,
+body.pixel #stres .brow.cancelled .dtime { color: #ff9484; }
+body.pixel #stres .brow.cancelled .cx {
+  background: #ff9484; color: #141210; border-radius: 0;
+  font-family: 'Press Start 2P', monospace; font-size: 8px;
+}
+
+/* The "not stopping at X" notice. Real information, on the board, in the
+   board's own voice -- amber-dim rather than the ivory-panel muted grey, which
+   would be 2.7:1 here. */
+body.pixel #stres .muted {
+  color: #b09a6e !important;
+  font-family: 'DotGothic16', monospace;
+}
+
+/* Status line above the board keeps the panel's own ink; it is page chrome,
+   not part of the emitting object. */
+body.pixel #stmsg { font-family: 'DotGothic16', monospace; }
+
+@media (max-width: 430px) {
+  /* 390px cannot hold the four-column heading; drop to the two labels that
+     disambiguate, and let the board itself do the rest. Measured: the full
+     string overflows at 366px of usable width. */
+  /* Phone: the MIN column is dropped from the headings because the grid's
+     auto track collapses at this width; the rows still render it. */
+  body.pixel #stres .bhead { grid-template-columns: 60px 40px 1fr 66px 32px;
+                             font-size: 8px; gap: 5px; }
+  body.pixel #stres .btime { font-size: 10px; }
+  body.pixel #stres .bdest { font-size: 12px; letter-spacing: .02em; }
+  body.pixel #stres .bmin  { font-size: 9px; }
+}
+
+/* --- board column widths: the pixel face needs more room ------------------
+   MEASURED BUG, caught by a screenshot and not by the first assertion pass.
+   index.html sizes the grid at 46px for the time, which fits the default UI
+   font. 'Press Start 2P' is a fixed-width display face roughly 30% wider per
+   glyph: '13:42' measured scrollWidth 61px in that 46px cell, so the due time
+   overran and sat under the scheduled time -- two numbers overlapping in the
+   one place on this page where a misread number makes someone miss a train.
+   Widened here rather than in index.html because the default theme is correct
+   as it stands; this is the pixel face's cost, so the pixel skin pays it. */
+body.pixel #stres .brow {
+  grid-template-columns: 64px 46px 1fr 68px 38px;
+}
+
+/* --- the set chip ---------------------------------------------------------
+   The generic pixel button rule paints every button ivory-white with indigo
+   text. On the ivory panel that is right; on the board's near-black ground it
+   was a glaring white slab that pulled the eye off the times. Measured
+   rgb(252,252,249) on rgb(20,18,16).
+   Restyled as an amber outline chip: it still reads as pressable (border +
+   label), it belongs to the board, and amber on #141210 is 10.2:1.
+   Deliberately dimmer than the due time -- the set number is useful, the
+   departure time is why you are looking. */
+body.pixel #stres .setlink {
+  background: transparent;
+  color: #e0b050;
+  /* 1px, not 2px: a 3-character number does not need 4px of border plus 12px
+     of padding. The heavier chrome made the chip paint 57px inside a 47px
+     cell on prod -- caught by the nowrap overflow assertion, which is exactly
+     why the chip is forbidden from wrapping rather than allowed to inflate
+     the row quietly. */
+  border: 1px solid #6b5518;
+  box-shadow: none;
+  font-family: 'DotGothic16', monospace;
+  font-size: 11px;
+  padding: 2px 4px;
+  justify-self: start;
+}
+body.pixel #stres .setlink:hover,
+body.pixel #stres .setlink:focus-visible {
+  background: #2a2009;
+  color: #ffb000;
+  border-color: #ffb000;
+}
+
+/* --- pixel-font fallout on the HUD chrome ---------------------------------
+   Two MEASURED regressions the older shot_ui4.py suite caught when the skin
+   became the default. Both have the same cause: 'DotGothic16' is wider per
+   glyph than the default UI font, so anything sized to fit the old face no
+   longer fits. Neither was visible in the pixel skin while it was opt-in,
+   because nobody ran the default-theme layout suite against it.
+
+   1. #chev (the HUD expand arrow) uses margin-left:auto and so is pushed to
+      the panel's right edge. In the wider face it measured right=394 against
+      a 390px viewport -- 4px off-screen, and it is the control that tells you
+      the panel opens. Nudged in; the glyph is decorative so the smaller size
+      costs nothing.
+   2. #alertbell sat at top:122px, 2px above the HUD's measured bottom of 124.
+      A 2px overlap on the one control that reports service disruption. Moved
+      below the panel's real extent rather than reducing the bell: 44px is a
+      touch target and is not negotiable (WCAG 2.5.8). */
+body.pixel #chev { font-size: 10px; margin-right: 2px; }
+
+@media (max-width: 430px) {
+  body.pixel #alertbell { top: 130px; }
+}
+
+/* --- HUD title: fit the bar at 390px -------------------------------------
+   MEASURED: "Auckland trains — live" rendered 330px of glyphs inside a bar
+   whose content box ends at 375px, with the h1 starting at x=46 after the STN
+   badge -- so the final characters were clipped at the right edge. overflow is
+   `visible` on the h1, so nothing wrapped and nothing ellipsised; the text was
+   simply cut, which reads as a broken page rather than as truncation.
+   The h1 inherits #hudbar's 8px on phones but was painting at 15px, so it was
+   never picking up the phone step-down. Sized explicitly here.
+   Caught by looking at a screenshot. Both overflow assertions passed, because
+   the h1's own scrollWidth equals its clientWidth -- the box is honest, it is
+   the PARENT it does not fit inside. There is now an assertion for that. */
+@media (max-width: 430px) {
+  body.pixel #hudbar h1 {
+    font-size: 11px;
+    letter-spacing: 0;
+    min-width: 0;          /* a flex child will not shrink below content without this */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* --- uniform row height ---------------------------------------------------
+   MEASURED: rows carrying a "set NNN" chip were 39px; the row reading "set not
+   assigned" has no chip (just muted text) and collapsed to 32px. Nothing was
+   clipped or wrapped -- the rows were simply ragged, which on a departures
+   board reads as a rendering fault, because the one thing a board promises is
+   a regular rhythm you can scan down.
+   min-height rather than a fixed height: a skip-notice row legitimately grows
+   to carry its "Not stopping at X" line, and that must still be allowed.
+   box-sizing:border-box is load-bearing -- without it min-height applies to
+   the CONTENT box and the row's 7px vertical padding is added on top, taking
+   every row to 53px and breaking the "no plain row over 48px" promise that
+   the earlier board redesign exists to keep. */
+body.pixel #stres .brow { min-height: 39px; box-sizing: border-box; }
+
+/* The no-set dash occupies the same column as the "set NNN" chip, so it must
+   be centred on that column rather than sitting flush against the
+   destination. Dimmer than the chip: this is an absence, and it should not
+   compete with the rows that do carry a set. */
+body.pixel #stres .noset {
+  display: inline-block;
+  min-width: 62px;
+  text-align: center;
+  color: #6b5f48;
+  font-family: 'DotGothic16', monospace;
+  font-size: 13px;
+}
+
+/* The headings and the rows MUST share a template at every breakpoint, or the
+   structural fix silently regresses into the same drift it replaced. These two
+   selectors are deliberately adjacent so they are edited together. */
+@media (max-width: 430px) {
+  /* 64px, because '14:09' in Press Start 2P at 10px paints 61px -- it was
+     overflowing a 56px track and colliding with the scheduled time. Measured,
+     not guessed. The 4th track stays FIXED for the reason noted above. */
+  body.pixel #stres .brow  { grid-template-columns: 60px 40px 1fr 66px 32px; gap: 5px; }
+  body.pixel #stres .bhead { grid-template-columns: 60px 40px 1fr 66px 32px; gap: 5px; }
+}
+
+
+/* The set chip must never wrap. It sits in a fixed track, so a wrap does not
+   just look wrong -- it doubles the chip's height and drags the whole row with
+   it (measured: 40px chip -> 55px rows, against a 39px baseline). nowrap makes
+   the failure visible as overflow, which an assertion catches, rather than
+   silently inflating every row. */
+body.pixel #stres .brow .setlink,
+body.pixel #stres .brow .noset { white-space: nowrap; }
+
+
+/* --- severity chips ON THE BOARD ------------------------------------------
+   The .pee.p1/p2/p3 tints above are pale fills (ivory-cream, peach, pink)
+   with dark text. Those are RIGHT on the ivory panel, which is where they
+   were designed and measured. On the board's sepia ground they are pale
+   slabs -- measured rgb(253,228,205) on rgb(43,34,24), label contrast 2.19:1,
+   a WCAG failure and visually the exact "white slab" problem already fixed
+   once for the plain set chip.
+
+   This is the same bug class as the plain chip, and it escaped the first fix
+   because it only renders when a REPORTED set happens to be due -- the local
+   rig had none, prod did. Caught by running the suite against prod, which is
+   the argument for doing that rather than trusting a green local run.
+
+   Overridden here as outline chips on the board only: transparent ground, lit
+   text, dim border. The severity RAMP is preserved (gold -> orange -> red),
+   because that ordering carries the meaning; only the fill is dropped.
+   Measured on #2b2218: p1 10.57, p2 8.57, p3 7.69 -- all AAA.
+   `!important` is required: the rules above use it, so this must match
+   specificity weight to win. */
+body.pixel #stres .pee.p1,
+body.pixel #stres .flag.s1 {
+  background: transparent !important; color: #e8d48a !important;
+  border: 1px solid #6b5518 !important;
+}
+body.pixel #stres .pee.p2,
+body.pixel #stres .flag.s2 {
+  background: transparent !important; color: #ffae6b !important;
+  border: 1px solid #8a5a24 !important;
+}
+body.pixel #stres .pee.p3,
+body.pixel #stres .flag.s3 {
+  background: transparent !important; color: #ff9a9a !important;
+  border: 1px solid #93332c !important;
+}
+/* Same chrome budget as the plain chip, so a reported set and an unreported
+   one occupy the same track width and the column stays aligned. */
+body.pixel #stres .pee {
+  padding: 2px 4px !important;
+  font-size: 11px;
+  white-space: nowrap;
+  justify-self: start;
+}

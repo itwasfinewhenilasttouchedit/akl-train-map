@@ -46,6 +46,14 @@ TRIPS: dict[str, dict] = GEO.get("trips", {})
 BASE = "https://api.at.govt.nz"
 VEHICLES = f"{BASE}/realtime/legacy/vehiclelocations"
 TRIPUPDATES = f"{BASE}/realtime/legacy/tripupdates"
+
+# Trip updates are fetched at 1/3 the rate of positions. See fetch_both() for
+# the reasoning; in short, a `delay` is stable over minutes while a position is
+# not, and AT's free tier allows 35,000 calls/month. Mutable list rather than
+# two module globals so fetch_both() can write it without a `global`.
+# [0] = fetch time, [1] = last good entity list (None until the first success).
+UPDATES_TTL_S = 60
+_updates_cache: list = [0.0, None]
 RAIL_ROUTE_IDS = {"S-C-201", "E-W-201", "O-W-201", "HUIA-404"}
 STOP_IDS: dict[str, str] = GEO.get("stop_ids", {})
 NZ = timezone(timedelta(hours=13))        # NZDT; GTFS times are local service time
@@ -303,6 +311,14 @@ async def fetch_both(key: str) -> tuple[list[dict], list[dict]]:
     Trip updates carry the *predicted* arrival/departure time and delay per
     stop, which is what makes an ETA honest — the GTFS schedule alone only says
     when a train was supposed to be there.
+
+    The two feeds are deliberately NOT fetched at the same rate. Positions move
+    every few seconds and must be fresh. A `delay` does not: it is a number of
+    seconds that drifts over minutes, and we apply it to a timetable time, so a
+    delay up to a minute old gives an ETA that is wrong by at most that drift —
+    invisible next to the 30 s granularity the UI shows. Refetching it every
+    20 s spent 4,320 calls/day of a 35,000/month quota to re-learn the same
+    number. Positions stay at full rate; updates are cached for UPDATES_TTL_S.
     """
     h = {"Ocp-Apim-Subscription-Key": key}
     async with httpx.AsyncClient(timeout=25) as c:
@@ -314,7 +330,23 @@ async def fetch_both(key: str) -> tuple[list[dict], list[dict]]:
             except Exception as e:
                 LOG.warning("feed %s failed: %s", url.rsplit("/", 1)[-1], e)
                 return []
-        return await asyncio.gather(get(VEHICLES), get(TRIPUPDATES))
+
+        now = time.time()
+        fresh = _updates_cache[1] is not None and now - _updates_cache[0] < UPDATES_TTL_S
+        if fresh:
+            # Serve the cached updates; only pay for positions this poll.
+            return await get(VEHICLES), _updates_cache[1]
+
+        vehicles, updates = await asyncio.gather(get(VEHICLES), get(TRIPUPDATES))
+        if updates:
+            # Only cache a non-empty answer: caching [] would blind every ETA
+            # for the whole TTL on one transient failure.
+            _updates_cache[0], _updates_cache[1] = now, updates
+        elif _updates_cache[1] is not None:
+            # The fetch failed. Last good beats nothing, same reasoning as
+            # consist_at's STALE_OK_S.
+            return vehicles, _updates_cache[1]
+        return vehicles, updates
 
 
 def index_updates(entities: list[dict]) -> dict[str, dict]:
@@ -362,14 +394,69 @@ def index_updates(entities: list[dict]) -> dict[str, dict]:
         # in every case, so this is extra coverage, not a conflicting source.
         lab = unit_label(((tu.get("vehicle") or {}).get("label") or ""))
         if lab:
-            (best or out.setdefault(tid, {}))["unit"] = lab
+            # A trip can carry a vehicle label with NO stop_time_update event
+            # (the set is assigned before it starts reporting against the run).
+            # That record must still have the full shape: consumers subscript
+            # p["delay"] and p["code"] directly, and a label-only dict raised
+            # KeyError: 'delay', which aborted the whole poll and left the map
+            # serving cached data behind an error banner.
             if best is None:
+                out.setdefault(tid, {"code": None, "t": None,
+                                     "delay": None, "seq": None})["unit"] = lab
                 continue
+            best["unit"] = lab
         if best:
             # trip-level delay is a useful fallback when the stop event omits it
             if best["delay"] is None:
                 best["delay"] = num(tu.get("delay"))
             out[tid] = best
+    return out
+
+
+def index_cancellations(entities: list[dict]) -> dict[str, dict]:
+    """trip_id -> {"skipped": [stop codes]} for trips AT has CANCELED or part-cancelled.
+
+    `trip.schedule_relationship` is a GTFS-RT enum we previously ignored
+    entirely, which meant a cancelled service was drawn exactly like a running
+    one. Measured on a live feed: 14 trips CANCELED, one of them rail
+    (S-C-201). So this is not a theoretical case.
+
+    Enum values, trip level: 0 SCHEDULED, 1 ADDED, 2 UNSCHEDULED, 3 CANCELED,
+    5 REPLACEMENT. Stop level (`stop_time_update`): 0 SCHEDULED, 1 SKIPPED,
+    2 NO_DATA. A trip can be running but skipping stops, which is why both
+    levels are captured rather than only the trip flag.
+
+    AT ships the enum as a STRING on some entities and an int on others (the
+    same coercion trap as `bearing`/`speed`), so compare on `str()`. And
+    `stop_time_update` is sometimes a bare string rather than an object, which
+    crashed a first version of this probe — hence the isinstance guard.
+
+    A cancelled trip usually has NO vehicle reporting against it, so these are
+    keyed by trip_id and consumed by the departure board rather than the map
+    markers: the point is to stop promising a train that is not coming.
+    """
+    out: dict[str, dict] = {}
+    for e in entities:
+        tu = e.get("trip_update") or {}
+        trip = tu.get("trip") or {}
+        tid = trip.get("trip_id")
+        if not tid:
+            continue
+        rel = str(trip.get("schedule_relationship") or "")
+        skipped = []
+        stu = tu.get("stop_time_update")
+        for s in (stu if isinstance(stu, list) else [stu] if stu else []):
+            if not isinstance(s, dict):
+                continue
+            if str(s.get("schedule_relationship") or "") == "1":   # SKIPPED
+                code = STOP_IDS.get(s.get("stop_id") or "")
+                if code:
+                    skipped.append(code)
+        if rel == "3" or skipped:
+            out[str(tid)] = {"cancelled": rel == "3", "skipped": skipped,
+                             "route_id": trip.get("route_id"),
+                             "start_time": trip.get("start_time"),
+                             "start_date": trip.get("start_date")}
     return out
 
 
@@ -385,6 +472,7 @@ async def collect() -> dict:
 
     entities, updates = await fetch_both(key)
     pred = index_updates(updates)
+    cancels = index_cancellations(updates)
     now = time.time()
     trains, stale, no_trip, with_pred, oos = [], 0, 0, 0, 0
 
@@ -460,9 +548,13 @@ async def collect() -> dict:
         p = pred.get(tid)
         prev_code = nxt_code = due = prog = None
         if p and sched:
-            delay = int(p["delay"]) if p["delay"] is not None else None
+            # .get(), not ["..."]: a label-only prediction record is a normal
+            # state, not an error, and one malformed entry must never take the
+            # whole poll down with it.
+            pdelay = p.get("delay")
+            delay = int(pdelay) if pdelay is not None else None
             prev_code, nxt_code, due, prog = next_after(
-                sched, p["code"], lat, lon, now, p["delay"] or 0)
+                sched, p.get("code"), lat, lon, now, pdelay or 0)
             if nxt_code:
                 with_pred += 1
             else:                                   # terminus: no stop after this
@@ -504,6 +596,12 @@ async def collect() -> dict:
             "trip_id": tid or None,
             "geometry": "gps",
             "in_service": True,
+            # AT has flagged this trip CANCELED, or named stops it will skip.
+            # A cancelled trip normally has no vehicle at all, so this rarely
+            # fires on a marker — but when it does, the train must not be drawn
+            # as a normal service.
+            "cancelled": bool(cancels.get(tid, {}).get("cancelled")),
+            "skipped_stops": [station(c) for c in cancels.get(tid, {}).get("skipped", [])],
         })
 
     trains.sort(key=lambda t: (not t["in_service"], t["line"], t["unit"] or ""))
@@ -526,6 +624,13 @@ async def collect() -> dict:
         # the exact rail test.
         "assignments": {t: p["unit"] for t, p in pred.items()
                         if p.get("unit") and t in TRIPS},
+        # Cancelled / stop-skipping RAIL trips, keyed by trip_id. Same rail
+        # filter and same reasoning as `assignments`: the network-wide figure is
+        # dominated by buses this app never shows. The departure board is the
+        # real consumer — a cancelled trip usually has no vehicle, so it would
+        # otherwise sit on the board as a train that is simply never going to
+        # arrive.
+        "cancellations": {t: c for t, c in cancels.items() if t in TRIPS},
         "with_prediction": with_pred,
         "stale_dropped": stale,
         "unknown_trip": no_trip,

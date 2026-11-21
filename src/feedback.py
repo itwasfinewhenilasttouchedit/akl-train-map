@@ -713,6 +713,12 @@ def summary(live_trips: set | None = None) -> dict:
                 s["worst_car"] = r["car_pos"]
                 s["worst_car_label"] = car_label(r["car_pos"], 3)
                 s["worst_car_n"] = r["n"]
+            # Per-car tallies, not just the worst one. The popup now draws the
+            # carriages, so it needs a count against EVERY car to shade them —
+            # "car 2 is worst" tells a rider nothing about whether car 1 is
+            # also bad. Keyed by car position as a string for JSON.
+            if s is not None:
+                s.setdefault("cars", {})[str(r["car_pos"])] = r["n"]
         # How many of this set's open smell reports came from a 6-car service,
         # so the UI can say "2 reports, car unknown (6-car)" instead of
         # pretending there is no carriage information at all.
