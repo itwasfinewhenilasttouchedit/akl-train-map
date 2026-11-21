@@ -97,6 +97,12 @@ jobs:
           AT_API_KEY: ${{ secrets.AT_API_KEY }}
         run: |
           test -n "$AT_API_KEY" || { echo "AT_API_KEY missing; the render gate would not be testing the live board"; exit 1; }
+          # The suites must exist. They are deliberately un-ignored in
+          # .gitignore; if that ever regresses, `docker cp` would copy nothing
+          # and the step could look like a plain assertion failure instead of
+          # a missing gate.
+          test -f src/shot_px.py && test -f src/shot_ui4.py \
+            || { echo "render suites missing from the checkout -- check .gitignore"; exit 1; }
           docker run -d --name akl-ci -e PORT=8080 -e ADMIN_TOKEN=ci \
             -e AT_API_KEY="$AT_API_KEY" \
             -e FEEDBACK_DB=/data/feedback.db akl-trains:ci

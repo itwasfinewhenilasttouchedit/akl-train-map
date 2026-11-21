@@ -49,8 +49,16 @@ _*.html
 
 # ---- throwaway probe and screenshot scripts ----
 # Investigation tooling; keep the repo to the actual application.
+#
+# EXCEPT shot_px.py and shot_ui4.py (un-ignored below): those two stopped
+# being throwaway the moment CI started running them as the render gate.
+# They are the only check that proves the page actually DREW -- generated
+# HTML/CSS is valid markup even when it styles nothing, so nothing throws and
+# nothing logs. A gate that is not in the repo cannot run on a clean checkout.
 src/probe*.py
 src/shot*.py
+!src/shot_px.py
+!src/shot_ui4.py
 src/seed_feedback.py
 
 # Licensed third-party art — "Train Station Tileset" by Pixels On Ultra.
