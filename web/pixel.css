@@ -192,11 +192,20 @@ body.pixel #hudbar {
   text-transform: uppercase;
 }
 /* The ::before used to inject a literal 'STN' text badge here. The header now
-   carries the pixel conductor mark (#brand) as real markup, so a second
+   carries the pixel hoki mark (#brand) as real markup, so a second
    pseudo-element badge would be two logos in one strip. Removed deliberately:
    the brand belongs in the DOM where it can be sized and recoloured, not in
    a content string. */
 body.pixel #brand svg { image-rendering: pixelated; }
+/* The descriptor sits in Press Start 2P's uppercase bar by inheritance, which
+   is far too wide for "- AUCKLAND TRAINS". Drop it to the narrower body face
+   and a smaller size so the whole banner fits on one line. */
+body.pixel #bsub {
+  font-family: 'Pixelify Sans', monospace;
+  font-size: 9px;
+  color: var(--e-paper, #e8eef5);
+  opacity: .85;
+}
 /* The chevron sits ON the dark header, so it must be light, not ink. */
 body.pixel #chev { color: #ffffff; }
 
@@ -511,8 +520,12 @@ body.pixel #skinbtn {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Brand mark shrinks with the header on a phone. */
-  body.pixel #brand svg { width: 22px; height: 28px; }
+  /* Brand mark shrinks with the header on a phone. The hoki is a 32x10 grid,
+     so the phone size keeps that 3.2:1 ratio -- a taller box letterboxes the
+     fish and a squarer one squashes it. */
+  body.pixel #brand svg { width: 32px; height: 10px; }
+  /* On a phone the descriptor is what gets sacrificed, not the brand. */
+  body.pixel #bsub { font-size: 7px; }
 
   body.pixel #stat { font-size: 8px; letter-spacing: 0; line-height: 1.25; }
   body.pixel #stat .age { font-size: 9px; line-height: 1.25; }
@@ -1013,8 +1026,15 @@ body.pixel #chev { font-size: 10px; margin-right: 2px; }
     letter-spacing: 0;
     min-width: 0;          /* a flex child will not shrink below content without this */
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* The h1 is now a flex row (brand name + descriptor). Ellipsising the h1
+     itself would clip "Hoki" too; squeeze the descriptor instead so the
+     brand name always survives. */
+  body.pixel #hudbar h1 #bsub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 

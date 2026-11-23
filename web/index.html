@@ -16,7 +16,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=44801a658f">
+<link rel="stylesheet" href="/static/pixel.css?v=3a02425446">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -43,9 +43,18 @@
      of text before a rider saw a single train. The subtitle and note are gone
      (the credit is in the map attribution where credits belong, and "updated
      Ns ago" already says the thing the note was claiming). What remains is
-     the conductor mark, the wordmark, and the live count. */
+     the hoki mark, the wordmark, and the live count.
+
+     Two-weight wordmark: "Hoki" is the brand and carries the weight; the
+     "- Auckland Trains" descriptor is smaller and muted so the full banner
+     reads as one line without becoming a heavy slab. Sizing them separately
+     is also what keeps the line inside the 260px panel -- see the clipping
+     note in pixel.css before enlarging either. */
   #hud h1 { margin:0; font-size:17px; font-weight:400; letter-spacing:.5px;
-            line-height:1; text-transform:lowercase; }
+            line-height:1; display:flex; align-items:baseline; gap:6px;
+            min-width:0; white-space:nowrap; }
+  #bsub { font-size:12px; color:var(--muted); letter-spacing:0;
+          min-width:0; overflow:hidden; text-overflow:ellipsis; }
   #brand { display:flex; align-items:center; flex:0 0 auto; }
   #brand svg { display:block; }
   /* Header row carries the collapse toggle. The whole row is the hit target —
@@ -696,41 +705,44 @@
 <div id="hud" class="panel">
   <div id="hudbar" role="button" tabindex="0" aria-expanded="true"
        aria-controls="hudbody" title="Show or hide the details">
-    <!-- HOKI BRAND MARK: a pixel-art train conductor, hand-authored on a
-         16x20 integer grid as inline SVG. Hand-drawn rather than generated:
-         crisp at every DPR, ~1 KB, no extra request, and recolourable from
-         CSS. shape-rendering=crispEdges keeps the pixels hard when the
-         browser scales it.
-         Decorative only -- the <h1> next to it carries the actual name, so
-         this is aria-hidden to avoid announcing the brand twice. -->
+    <!-- HOKI BRAND MARK: the fish, not a railwayman. Hoki (Macruronus
+         novaezelandiae) is a long, slender, blue-silver deep-water fish with
+         an oversized yellow eye, a low dorsal fin running most of its back,
+         a matching anal fin, and a body tapering to a whip-thin pointed tail.
+         Drawn from the reference supplied. Authored as a 32x10 character
+         grid and run-length-encoded into one <path> per colour (see
+         output/make_fish.py) -- hand-written path data had the tail floating
+         detached from the body and the fins the same value as the back, so
+         the whole thing read as a blue smudge. Generated from a grid the
+         shape can actually be eyeballed in.
+
+         The silhouette carries the identity at this size, so the stepped
+         taper to a thin peduncle and the big eye are what stay legible when
+         it scales down; scales and the lateral line are deliberately omitted
+         because at ~38px wide they turn to mush. Fins are deliberately
+         LIGHTER than the back -- the first attempt made them near-identical
+         and the fish lost its outline entirely.
+         Decorative only -- the <h1> beside it carries the name, so this is
+         aria-hidden to avoid announcing the brand twice. -->
     <span id="brand" aria-hidden="true">
-      <svg viewBox="0 0 16 20" width="28" height="35" shape-rendering="crispEdges">
-        <!-- cap -->
-        <path fill="#1b2a4a" d="M4 1h8v2H4z"/>
-        <path fill="#2d4374" d="M3 3h10v1H3z"/>
-        <path fill="#c9a227" d="M5 2h6v1H5z"/>
-        <!-- cap brim -->
-        <path fill="#121a2e" d="M2 4h12v1H2z"/>
-        <!-- face -->
-        <path fill="#e8c9a0" d="M4 5h8v4H4z"/>
-        <path fill="#1b2a4a" d="M5 6h1v1H5zM10 6h1v1h-1z"/>
-        <path fill="#b3785a" d="M7 8h2v1H7z"/>
-        <!-- jacket, Hoki green -->
-        <path fill="#97c93d" d="M3 9h10v7H3z"/>
-        <path fill="#6f9a2a" d="M3 9h10v1H3z"/>
-        <!-- collar + buttons -->
-        <path fill="#f4f7ef" d="M6 9h4v2H6z"/>
-        <path fill="#c9a227" d="M7 11h1v1H7zM7 13h1v1H7z"/>
-        <!-- arms -->
-        <path fill="#7fae33" d="M2 10h1v5H2zM13 10h1v5h-1z"/>
-        <!-- whistle, raised in the right hand -->
-        <path fill="#c9a227" d="M14 9h1v2h-1z"/>
-        <!-- legs -->
-        <path fill="#1b2a4a" d="M4 16h3v3H4zM9 16h3v3H9z"/>
-        <path fill="#121a2e" d="M3 19h4v1H3zM9 19h4v1H9z"/>
+      <svg viewBox="0 0 32 10" width="38" height="12" shape-rendering="crispEdges">
+        <!-- dark blue-grey back -->
+        <path fill="#3d5f80" d="M4 2h22v1h-22zM2 3h2v1h-2zM19 3h8v1h-8zM1 4h1v1h-1zM24 4h4v1h-4zM26 5h2v1h-2zM27 6h2v1h-2z"/>
+        <!-- pale blue-silver flank -->
+        <path fill="#c8d6e2" d="M4 3h15v1h-15zM2 4h1v1h-1zM5 4h19v1h-19zM1 5h2v1h-2zM5 5h21v1h-21zM1 6h4v1h-4z"/>
+        <!-- silver belly -->
+        <path fill="#f2f6fa" d="M5 6h22v1h-22zM2 7h24v1h-24z"/>
+        <!-- fins + tail (lighter than the back so the silhouette reads) -->
+        <path fill="#8fa9c2" d="M10 0h1v1h-1zM9 1h3v1h-3zM13 1h12v1h-12zM26 2h1v1h-1zM27 3h2v1h-2zM28 4h3v1h-3zM28 5h4v1h-4zM29 6h3v1h-3zM26 7h2v1h-2zM29 7h2v1h-2zM4 8h5v1h-5zM12 8h13v1h-13zM5 9h3v1h-3zM15 9h5v1h-5z"/>
+        <!-- the oversized yellow eye -->
+        <path fill="#e8c54a" d="M3 4h2v1h-2zM4 5h1v1h-1z"/>
+        <!-- pupil -->
+        <path fill="#16212e" d="M3 5h1v1h-1z"/>
+        <!-- jaw -->
+        <path fill="#2c4257" d="M0 5h1v1h-1z"/>
       </svg>
     </span>
-    <h1>hoki</h1>
+    <h1>Hoki <span id="bsub">- Auckland Trains</span></h1>
     <span id="chev">▾</span>
   </div>
   <div id="stat" aria-live="polite" aria-atomic="true"><span class="dot dead"></span>connecting…</div>
