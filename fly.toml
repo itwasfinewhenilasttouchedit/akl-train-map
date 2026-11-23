@@ -17,6 +17,18 @@ primary_region = "syd"
 [env]
   PORT = "8080"
   FEEDBACK_DB = "/data/feedback.db"
+  # Redirect every visitor to the self-hosted site (301, path+query preserved).
+  # This app becomes a signpost, not a server. Unset this to make Fly serve
+  # again -- that is the rollback if the self-hosted box has a bad week.
+  #
+  # The poller keeps running here regardless, which is deliberate: the machine
+  # must stay healthy so the redirect keeps working, and a warm cache means
+  # un-redirecting is instant. It does cost a second AT quota consumer; see
+  # TRAINS_CACHE if that needs trimming.
+  #
+  # /api/* is exempt in server.py -- the Fly health check below does NOT follow
+  # redirects and would kill the machine.
+  CANONICAL_HOST = "hoki.co.nz"
 
 [[mounts]]
   source = "traindata"

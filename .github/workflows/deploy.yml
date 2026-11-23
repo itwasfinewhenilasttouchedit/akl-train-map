@@ -77,12 +77,17 @@ jobs:
           test -f src/test_trailing.py || { echo "trailing-half gate missing"; exit 1; }
           test -f src/test_order_latch.py || { echo "order-latch gate missing"; exit 1; }
           test -f src/test_order_latch_e2e.py || { echo "order-latch e2e gate missing"; exit 1; }
+          test -f src/test_canonical.py || { echo "canonical-redirect gate missing"; exit 1; }
           python src/test_feedback.py
           python src/test_consist_at.py
           python src/test_alerts.py
           python src/test_trailing.py
           python src/test_order_latch.py
           python src/test_order_latch_e2e.py
+          # Guards the CANONICAL_HOST redirect. The /api/health exemption is
+          # load-bearing: Fly's health check does not follow redirects, so a
+          # 301 there makes the platform destroy this very machine.
+          ARCHIVE_DB=off python src/test_canonical.py
 
       - name: Build image locally
         # Build before touching Fly. A Dockerfile error should fail here, not

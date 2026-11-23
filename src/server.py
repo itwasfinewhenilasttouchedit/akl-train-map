@@ -20,10 +20,11 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import archive   # noqa: E402
 import live      # noqa: E402
 import alerts    # noqa: E402
 import board
@@ -135,11 +136,27 @@ async def poller() -> None:
             STATE["error"] = None
             await asyncio.get_running_loop().run_in_executor(None, _annotate_consists)
             _save_cache(STATE["data"])
+            # Archive AFTER annotation so consist/order/source land in history,
+            # and in the executor because SQLite writes are blocking. Failures
+            # are swallowed inside record(): the live map is the product.
+            a = archive.get()
+            if a is not None:
+                await asyncio.get_running_loop().run_in_executor(
+                    None, a.record, STATE["data"])
             LOG.info("poll ok: %d trains in %dms",
                      STATE["data"]["count"], STATE["data"]["poll_ms"])
         except Exception as e:
             STATE["error"] = f"{type(e).__name__}: {e}"
             LOG.warning("poll failed: %s", STATE["error"])
+            # Record the gap explicitly: a hole in `obs` must not be
+            # indistinguishable from "no trains were running".
+            a = archive.get()
+            if a is not None:
+                try:
+                    await asyncio.get_running_loop().run_in_executor(
+                        None, a.record_failure, STATE["error"])
+                except Exception:  # noqa: BLE001
+                    pass
         await asyncio.sleep(POLL_SECONDS)
 
 
@@ -270,6 +287,7 @@ app = FastAPI(title="Auckland live train map")
 @app.on_event("startup")
 async def _startup() -> None:
     feedback.init_db()
+    archive.init()
     _load_cache()
     asyncio.create_task(poller())
 
@@ -307,6 +325,23 @@ async def api_health() -> dict:
             "poll_ms": d["poll_ms"] if d else None,
             "feedback": feedback.stats()["reports"],
             "last_fetch": STATE["fetched"], "error": STATE["error"]}
+
+
+@app.get("/api/archive")
+async def api_archive(unit: str | None = None, limit: int = 200) -> JSONResponse:
+    """Archive stats, or one unit's recorded history.
+
+    Read-only and deliberately dull: the archive is for later analysis, not a
+    live feature. `?unit=AMP 281` returns that unit's observations newest
+    first — the query the (unit_pk, ts) primary key is shaped for.
+    """
+    a = archive.get()
+    if a is None:
+        return JSONResponse({"enabled": False})
+    if unit:
+        return JSONResponse({"enabled": True, "unit": unit,
+                             "rows": a.history(unit, min(int(limit), 2000))})
+    return JSONResponse(a.stats())
 
 
 # ---------------------------------------------------------------- feedback
@@ -916,6 +951,33 @@ async def index() -> FileResponse:
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")
+
+
+# --------------------------------------------------------------- canonical host
+# Set CANONICAL_HOST to send every visitor to another origin with a 301.
+# Used on Fly (akl-trains.fly.dev) to redirect to the self-hosted site; unset
+# on the host that actually serves, so one image does both jobs.
+#
+# /api/health is DELIBERATELY EXEMPT. Fly's own health check
+# (fly.toml [[http_service.checks]] path = "/api/health") follows no
+# redirects: 301 it and the platform marks the machine unhealthy, replaces it,
+# and the redirect takes itself down. Any monitor pointed at a /api/ path
+# likewise wants a real answer, not a hop.
+CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "").strip()
+_NO_REDIRECT_PREFIXES = ("/api/",)
+
+
+@app.middleware("http")
+async def _canonical_redirect(request: Request, call_next):
+    if CANONICAL_HOST:
+        path = request.url.path
+        if not path.startswith(_NO_REDIRECT_PREFIXES):
+            # Preserve path and query: a shared deep link must survive the hop.
+            target = f"https://{CANONICAL_HOST}{path}"
+            if request.url.query:
+                target += "?" + request.url.query
+            return RedirectResponse(target, status_code=301)
+    return await call_next(request)
 
 
 if __name__ == "__main__":
