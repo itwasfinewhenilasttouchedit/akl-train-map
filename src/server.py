@@ -140,9 +140,23 @@ def _annotate_consists() -> None:
     does, using AT's published unit list.
 
     A rescued half keeps `in_service: False` renamed honestly — it is given
-    the partner's route, line, colour and destination and marked
-    `trailing_half: True`, so the client can draw ONE train for the service
-    instead of two icons telling different stories.
+    the partner's route, line, colour and destination. Exactly one half of the
+    pair is then marked `trailing_half: True` so the client draws ONE train for
+    the service instead of two icons telling different stories.
+
+    WHICH half is marked is decided by GEOMETRY, not by trip ownership.
+    Ground truth 2026-11-23: AT put the trip on the REAR set on both observed
+    6-car services (1033 of 1033+917; 1005 of 1005+1196). The old rule marked
+    the trip-less half as trailing, so it labelled the physical FRONT of the
+    train as trailing and drew the icon up to ~72 m behind the real leading
+    cab. One record was observed carrying `trailing_half: True` and
+    `consist_position: "front"` at the same time.
+
+    So: if either half has a `consist_position` from the geometric projection,
+    the half at "rear" is the one marked trailing and the "front" half is
+    drawn. Only when geometry is unavailable (both halves stationary, which is
+    exactly when it returns None) do we fall back to the old trip-ownership
+    guess — and `trailing_source` records which rule was used.
     """
     d = STATE.get("data")
     if not d:
@@ -162,6 +176,7 @@ def _annotate_consists() -> None:
             by_set[str(sn)] = t
 
     rescued = 0
+    pairs_rescued: list[tuple[dict, dict]] = []
     for t in trains:
         sn = feedback.set_number(t.get("unit"))
         pair = couples.get(str(sn)) if sn else None
@@ -178,6 +193,7 @@ def _annotate_consists() -> None:
         # This half has no trip but its partner is working a service: it is the
         # other end of that train, not stabled stock.
         t["trailing_half"] = True
+        t["trailing_source"] = "no_trip"
         t["service_set"] = feedback.set_number(partner.get("unit"))
         for k in ("route", "line", "colour", "dest", "to", "from",
                   "platform", "eta_s", "delay_s", "trip_id",
@@ -185,6 +201,34 @@ def _annotate_consists() -> None:
             if k in partner:
                 t[k] = partner[k]
         rescued += 1
+        pairs_rescued.append((t, partner))
+
+    # Second pass: let geometry, not trip ownership, decide which half is the
+    # tail. The trip is known to sit on the rear set at least some of the time,
+    # so "has no trip" is not "is behind" — see this function's docstring.
+    regeom = 0
+    for half, partner in pairs_rescued:
+        hp, pp = half.get("consist_position"), partner.get("consist_position")
+        front = None
+        if hp == "front" or pp == "rear":
+            front = half
+        elif hp == "rear" or pp == "front":
+            front = partner
+        if front is None:
+            continue  # both stationary: geometry has nothing, keep the guess
+        rear = partner if front is half else half
+        front["trailing_half"] = False
+        front["trailing_source"] = "geometry"
+        rear["trailing_half"] = True
+        rear["trailing_source"] = "geometry"
+        if rear is partner:
+            # The drawn icon moves to the trip-less half, so it must carry the
+            # identity of the service it is physically leading — including
+            # `in_service`, or the client's OOS filter would hide the only
+            # icon for a running train.
+            front["in_service"] = True
+            front.setdefault("service_set", feedback.set_number(partner.get("unit")))
+            regeom += 1
 
     if rescued:
         # Recount: these are no longer "out of service" in any sense a rider
@@ -192,8 +236,8 @@ def _annotate_consists() -> None:
         d["trailing_halves"] = rescued
         d["out_of_service"] = max(0, int(d.get("out_of_service") or 0) - rescued)
         d["in_service"] = int(d.get("in_service") or 0) + rescued
-    LOG.info("consist: %s; rescued %d trailing half/halves",
-             consist_at.summarise(couples), rescued)
+    LOG.info("consist: %s; rescued %d trailing half/halves (%d re-ordered by geometry)",
+             consist_at.summarise(couples), rescued, regeom)
 
 
 app = FastAPI(title="Auckland live train map")

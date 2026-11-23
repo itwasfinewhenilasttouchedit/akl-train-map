@@ -19,6 +19,16 @@
 id_ed25519*
 .flyapp
 
+# Per-use credential fetches land in dot-prefixed files at the repo root. The
+# named entries above are the ones that have existed; this catch-all covers any
+# future one, because a credential that is merely untracked is one `git add -A`
+# away from being public.
+.gh*
+.cf_*
+.cr_*
+.*token*
+.*secret*
+
 # ---- private key-manager client helpers ----
 # Operational tooling for a private stack, not part of the app.
 src/cr_*.mjs
