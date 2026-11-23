@@ -102,7 +102,12 @@ services:
     container_name: akl-goaccess
     restart: unless-stopped
     depends_on:
-      - akl-train-map
+      akl-train-map:
+        # service_started is not enough: the app creates access.log a moment
+        # AFTER it starts listening, and GoAccess dies on a missing log file
+        # ("Unable to open the specified log file") rather than waiting. The
+        # entrypoint below closes the remaining gap; this closes the big one.
+        condition: service_healthy
     # Read-only mount: the dashboard must never be able to alter or truncate
     # the log it reports on.
     volumes:
@@ -113,27 +118,78 @@ services:
       # not hardcoded: the address is site detail and this file is public.
       # Defaults to loopback, so a missing .env entry fails CLOSED -- reachable
       # only on the phone itself, never accidentally exposed to the subnet.
+      #
+      # This is the WEBSOCKET port, not an HTTP port: curling it returns 400.
+      # The dashboard itself is an HTML file written to ./data/goaccess, served
+      # by the dash-web container below. Both must be reachable from the admin
+      # host, because the page opens a websocket back to this port to live-update.
       - "${DMZ_BIND:-127.0.0.1}:7890:7890"
-    command: >
-      --log-file=/srv/data/access.log
-      --log-format=COMBINED
-      --real-time-html
-      --port=7890
-      --ws-url=${DMZ_BIND:-127.0.0.1}:7890
-      --output=/srv/report/index.html
-      --db-path=/srv/report
-      --persist
-      --restore
-      --tz=Pacific/Auckland
-      --agent-list
-      --ignore-crawlers
-      --no-progress
+    # TZ so the dashboard's hourly breakdown reads in local time. The app logs
+    # with a numeric offset, so GoAccess needs --tz to agree with it or every
+    # bucket lands 13 hours out -- which on a commuter site would put the
+    # morning peak in the previous evening.
+    environment:
+      TZ: Pacific/Auckland
+    # Wait for the log to exist before parsing. Without this the container
+    # crash-loops on a cold start where the app has not served a request yet.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 60); do
+          [ -f /srv/data/access.log ] && break
+          echo "waiting for access.log ($$i)"; sleep 2
+        done
+        exec goaccess \
+          --log-file=/srv/data/access.log \
+          --log-format=COMBINED \
+          --real-time-html \
+          --port=7890 \
+          --ws-url=${DMZ_BIND:-127.0.0.1}:7890 \
+          --output=/srv/report/index.html \
+          --db-path=/srv/report \
+          --persist --restore \
+          --tz=Pacific/Auckland \
+          --agent-list \
+          --ignore-crawlers \
+          --no-progress
     deploy:
       resources:
         limits:
           # Parsing is cheap but must never compete with serving traffic.
           cpus: "0.5"
           memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Serves the GoAccess HTML report. GoAccess's own --port is a websocket, not
+  # an HTTP server (curling it returns 400), so the report file needs something
+  # to serve it. nginx:alpine read-only over the report directory is the whole
+  # job -- no config, no PHP, nothing that can write.
+  #
+  # Same binding discipline as above: the host's LAN address from .env, never
+  # 0.0.0.0, defaulting to loopback so a missing value fails closed. No tunnel
+  # ingress rule exists for it, so it cannot reach the public hostname.
+  dash-web:
+    image: nginx:1.27-alpine
+    container_name: akl-dash-web
+    restart: unless-stopped
+    depends_on:
+      - goaccess
+    volumes:
+      # :ro throughout -- a traffic dashboard has no business writing anything.
+      - ./data/goaccess:/usr/share/nginx/html:ro
+    ports:
+      - "${DMZ_BIND:-127.0.0.1}:7891:80"
+    environment:
+      TZ: Pacific/Auckland
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
     logging:
       driver: json-file
       options:
