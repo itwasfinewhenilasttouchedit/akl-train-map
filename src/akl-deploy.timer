@@ -1,4 +1,5 @@
-# Timer for akl-deploy.service -- see that file for install instructions.
+# Timer for akl-deploy.service -- see that file for install instructions and
+# for why this is a system unit rather than a `systemctl --user` one.
 
 [Unit]
 Description=Check origin/main for the Auckland train map every 5 minutes

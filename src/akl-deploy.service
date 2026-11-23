@@ -1,26 +1,34 @@
 # Pull-based deploy timer for the self-hosted instance.
 #
-# Install (on the host, as the service user):
-#   mkdir -p ~/.config/systemd/user
-#   cp src/akl-deploy.service src/akl-deploy.timer ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now akl-deploy.timer
-#   sudo loginctl enable-linger "$USER"   # survive logout / run at boot
+# Install (needs root to place the unit; the deploy itself does NOT run as root):
+#   sudo cp src/akl-deploy.service src/akl-deploy.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now akl-deploy.timer
 #
-# A user unit, not system: the deploy only needs the docker group and the
-# repo in $HOME. Nothing here requires root, so nothing here gets root.
+# A SYSTEM unit running as an unprivileged User=, not a --user unit. The
+# obvious choice is a user unit (nothing here needs root -- just the docker
+# group and a repo in $HOME), but on this handset's vendor kernel
+# `systemctl --user` cannot start at all: user@UID.service fails with
+# "Failed to connect to bus: No medium found" and /run/user/UID is never
+# created, even with loginctl enable-linger. Restricted cgroup delegation on
+# the Samsung kernel. So: system unit, dropped privileges, same net effect.
 
 [Unit]
 Description=Pull origin/main and redeploy the Auckland train map if it changed
 Documentation=https://github.com/itwasfinewhenilasttouchedit/akl-train-map
 After=network-online.target docker.service
 Wants=network-online.target
+Requires=docker.service
 
 [Service]
 Type=oneshot
-# %h is the user's home: no hardcoded username, so this unit is portable.
-WorkingDirectory=%h/srv/akl-train-map
-ExecStart=/usr/bin/env bash %h/srv/akl-train-map/src/deploy_pull.sh
+User=hermes
+Group=hermes
+# Docker socket access. The deploy builds images and recreates a container;
+# that is the entire privilege requirement.
+SupplementaryGroups=docker
+WorkingDirectory=/home/hermes/srv/akl-train-map
+ExecStart=/usr/bin/env bash /home/hermes/srv/akl-train-map/src/deploy_pull.sh
 # A cold arm64 build with the GTFS reduction step measured 2m09s; the smoke
 # test and health wait add up to ~2m more. 15 minutes is generous headroom
 # for a thermally-clamped phone without hanging a stuck build forever.
@@ -28,6 +36,12 @@ TimeoutStartSec=900
 # Deploy failure is non-fatal and self-healing: the script rolls back and the
 # timer simply tries again after the next push. Don't spam-restart it.
 Restart=no
-# The script is the only thing that should ever touch the live container, so
-# keep its environment minimal and predictable.
+# HOME must be set explicitly: the script defaults REPO_DIR and STATE_DIR from
+# it, and systemd does not populate it the way a login shell would.
+Environment=HOME=/home/hermes
 Environment=LANG=C.UTF-8
+# Deploying is build-and-restart, never a reason to compete with the running
+# site for CPU on an 8-core phone that also serves traffic.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
