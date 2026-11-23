@@ -144,7 +144,7 @@ services:
           --log-format=COMBINED \
           --real-time-html \
           --port=7890 \
-          --ws-url=${DMZ_BIND:-127.0.0.1}:7890 \
+          --ws-url=${DASH_WS_URL:-ws://127.0.0.1:7890} \
           --output=/srv/report/index.html \
           --db-path=/srv/report \
           --persist --restore \
