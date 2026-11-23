@@ -16,7 +16,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=3a02425446">
+<link rel="stylesheet" href="/static/pixel.css?v=99f7bcace5">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -56,7 +56,9 @@
   #bsub { font-size:12px; color:var(--muted); letter-spacing:0;
           min-width:0; overflow:hidden; text-overflow:ellipsis; }
   #brand { display:flex; align-items:center; flex:0 0 auto; }
-  #brand svg { display:block; }
+  /* Sized to sit with the wordmark's cap height rather than the 38px the
+     grid happens to be -- a smaller fish reads as an afterthought. */
+  #brand svg { display:block; width:48px; height:15px; }
   /* Header row carries the collapse toggle. The whole row is the hit target —
      a 14px chevron alone is a miserable thing to tap on a phone. */
   #hudbar { display:flex; align-items:center; gap:8px; cursor:pointer; min-height:44px;

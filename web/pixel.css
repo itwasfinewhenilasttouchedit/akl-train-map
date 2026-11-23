@@ -202,10 +202,19 @@ body.pixel #brand svg { image-rendering: pixelated; }
    and a smaller size so the whole banner fits on one line. */
 body.pixel #bsub {
   font-family: 'Pixelify Sans', monospace;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--e-paper, #e8eef5);
   opacity: .85;
+  /* #hudbar uppercases everything; "- AUCKLAND TRAINS" shouts next to the
+     brand name and the wide caps open an awkward gap after the dash. The
+     descriptor is a subtitle, so let it keep its own case. */
+  text-transform: none;
+  letter-spacing: .5px;
 }
+/* The mark was dwarfed by the wordmark beside it -- Press Start 2P is a tall
+   face, so a 12px-high fish next to it read as an afterthought. Scale it to
+   sit with the cap height of the text. */
+body.pixel #brand svg { width: 54px; height: 17px; }
 /* The chevron sits ON the dark header, so it must be light, not ink. */
 body.pixel #chev { color: #ffffff; }
 
@@ -521,11 +530,11 @@ body.pixel #skinbtn {
     text-overflow: ellipsis;
   }
   /* Brand mark shrinks with the header on a phone. The hoki is a 32x10 grid,
-     so the phone size keeps that 3.2:1 ratio -- a taller box letterboxes the
+     so every size keeps that 3.2:1 ratio -- a taller box letterboxes the
      fish and a squarer one squashes it. */
-  body.pixel #brand svg { width: 32px; height: 10px; }
+  body.pixel #brand svg { width: 38px; height: 12px; }
   /* On a phone the descriptor is what gets sacrificed, not the brand. */
-  body.pixel #bsub { font-size: 7px; }
+  body.pixel #bsub { font-size: 8px; letter-spacing: 0; }
 
   body.pixel #stat { font-size: 8px; letter-spacing: 0; line-height: 1.25; }
   body.pixel #stat .age { font-size: 9px; line-height: 1.25; }
