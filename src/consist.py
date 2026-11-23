@@ -97,6 +97,7 @@ def detect(trains: list[dict]) -> dict[str, dict]:
             continue
         cand.append({"set_no": str(sn), "lat": lat, "lon": lon, "spd": spd,
                      "brg": t.get("bearing") or 0.0,
+                     "age": t.get("fix_age_s"),
                      "trip": t.get("trip_id")})
 
     # Greedy nearest-first pairing. A set belongs to at most one couple, and
@@ -143,6 +144,21 @@ def detect(trains: list[dict]) -> dict[str, dict]:
                 "cars": cars if known_order else None,
                 "gap_m": round(gap),
                 "consist_inferred": True,
+                # Scoring inputs for order_latch: how much to trust this
+                # particular front/rear call. Speed is what makes the
+                # direction of travel real; bearing disagreement between two
+                # rigidly coupled halves measures the heading noise present.
+                "speed_mps": round(min(a["spd"], b["spd"]), 2),
+                "brg_diff": round(_bearing_diff(a["brg"], b["brg"]), 1),
+                # Fix-age skew between the two halves. The projection compares
+                # two POSITIONS for a ~72 m offset, so if one fix is stale the
+                # train has moved in between: 10 s of skew at 76 km/h is 211 m
+                # of phantom offset, enough to flip the sign. Measured: the
+                # one pair out of 28 that reported contradictory orders across
+                # polls had exactly that skew. Scored, not rejected.
+                "fix_skew_s": (abs(a["age"] - b["age"])
+                               if a.get("age") is not None
+                               and b.get("age") is not None else None),
             }
     if out:
         LOG.info("consist: %d coupled 6-car service(s) inferred", len(out) // 2)

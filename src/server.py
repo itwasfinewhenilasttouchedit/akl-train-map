@@ -29,6 +29,7 @@ import alerts    # noqa: E402
 import board
 import consist   # noqa: E402
 import consist_at   # noqa: E402
+import order_latch  # noqa: E402
 import journey   # noqa: E402
 import feedback  # noqa: E402
 
@@ -78,6 +79,24 @@ CACHE = Path(os.environ.get("TRAINS_CACHE")
 # to "actively misleading" fairly fast, and a machine that has been down
 # overnight should show the warming state rather than yesterday's rush hour.
 CACHE_MAX_AGE_S = 900
+
+# Latched 6-car front/rear orders. Persisted beside the cache (and so on the
+# volume in production): the order is derived only while a train MOVES, so
+# losing the store on a redeploy would blank the order for every stationary
+# 6-car until it next pulls away. State, not image content.
+LATCH_PATH = Path(os.environ.get("ORDER_LATCH")
+                  or (Path(os.environ["FEEDBACK_DB"]).parent / "order_latch.json"
+                      if os.environ.get("FEEDBACK_DB")
+                      else Path(__file__).resolve().parent.parent / "output" / "order_latch.json"))
+
+_LATCH: order_latch.OrderLatch | None = None
+
+
+def _latch() -> "order_latch.OrderLatch":
+    global _LATCH
+    if _LATCH is None:
+        _LATCH = order_latch.OrderLatch(LATCH_PATH)
+    return _LATCH
 
 
 def _save_cache(d: dict) -> None:
@@ -186,6 +205,11 @@ def _annotate_consists() -> None:
         t["consist_source"] = pair.get("source")
         t["partner_set"] = pair.get("partner")
         t["consist_position"] = pair.get("position")
+        # "inferred" = geometry resolved it from THIS poll's positions;
+        # "latched" = remembered from an earlier moving sample on this same
+        # trip. Exposed so the ordering's provenance stays auditable.
+        if pair.get("order_source"):
+            t["order_source"] = pair["order_source"]
 
         partner = by_set.get(str(pair.get("partner") or ""))
         if not partner or t.get("in_service") or not partner.get("in_service"):
@@ -576,6 +600,7 @@ def _consist_map() -> dict:
         rows.append({"set_no": sn, "lat": t.get("lat"), "lon": t.get("lon"),
                      "speed": (kmh / 3.6) if kmh is not None else 0.0,
                      "bearing": t.get("bearing"),
+                     "fix_age_s": t.get("fix_age_s"),
                      "trip_id": t.get("trip_id")})
         if t.get("trip_id"):
             trips.append(t["trip_id"])
@@ -586,7 +611,99 @@ def _consist_map() -> dict:
     STATE["consist_error"] = err
     at_couples = consist_at.couples_from_units(by_trip)
     merged = consist_at.merge(at_couples, inferred)
+    # The latch key needs the service's trip id, and only ONE half of a 6-car
+    # carries it. Build the lookup from the rows we already assembled, then
+    # fill each set's partner's trip in, so either half resolves the same key.
+    trip_by_set = {str(r["set_no"]): r.get("trip_id") for r in rows}
+    for sn, row in merged.items():
+        if not trip_by_set.get(str(sn)):
+            trip_by_set[str(sn)] = trip_by_set.get(str(row.get("partner") or ""))
+    _apply_order_latch(merged, trip_by_set)
     return merged
+
+
+def _apply_order_latch(merged: dict, trip_by_set: dict) -> None:
+    """Latch a 6-car's order from the best moving sample; hold it until split.
+
+    Front/rear can only be DERIVED while moving — the projection needs a
+    direction of travel, and a stationary unit's bearing is noise (a coupled
+    pair was observed reporting bearings 21.4 degrees apart while stopped).
+    So roughly half of all couples report `position: None` at any instant, and
+    a train's order blinks out every time it stops at a platform.
+
+    But the order did not become unknown: the train was moving a moment ago,
+    and two sets joined by a Scharfenberg coupler cannot swap ends without
+    uncoupling first. So remember it.
+
+    The latch is keyed on (trip_id, both set numbers), NOT on the pair alone.
+    At a terminus the same physical pair reverses and front/rear invert with
+    no uncoupling, so a pair-keyed memory would serve a confidently wrong
+    order for the whole return working. A new trip inherits nothing and must
+    earn its own order. Set numbers are in the key too, so a coupling change
+    invalidates the entry even mid-trip.
+
+    `order_source` distinguishes a live determination (`"inferred"`) from a
+    remembered one (`"latched"`), so the uncertainty stays visible rather than
+    being laundered into the same field.
+    """
+    latch = _latch()
+    seen_pairs: set[tuple[str, str]] = set()
+    stored = restored = 0
+
+    # Pass 1: bank every live geometric determination.
+    for sn, row in merged.items():
+        partner = row.get("partner")
+        if not partner or row.get("consist") != 6:
+            continue
+        seen_pairs.add(tuple(sorted((str(sn), str(partner)))))
+        if row.get("position") != "front":
+            continue        # record each pair once, from the front half
+        if latch.observe(trip_by_set.get(str(sn)), str(sn), str(partner),
+                         speed_mps=row.get("speed_mps"),
+                         brg_diff=row.get("brg_diff"),
+                         gap_m=row.get("gap_m"),
+                         fix_skew_s=row.get("fix_skew_s")):
+            stored += 1
+
+    # Pass 2: fill in pairs that have no order right now but did earlier.
+    for sn, row in merged.items():
+        partner = row.get("partner")
+        if row.get("position") or not partner or row.get("consist") != 6:
+            continue
+        pos = latch.position_for(str(sn), trip_by_set.get(str(sn)), str(partner))
+        if not pos:
+            continue
+        row["position"] = pos
+        row["cars"] = [1, 2, 3] if pos == "front" else [4, 5, 6]
+        row["order_source"] = "latched"
+        restored += 1
+
+    # A pair that has stopped appearing together has split (or one half has
+    # gone off-feed). Drop its remembered order: they are not one train now.
+    #
+    # Guarded against a feed outage. The consist table is built from per-trip
+    # AT calls; if those error, `merged` arrives EMPTY and every pair would
+    # look split, wiping the whole store in one poll for no reason. An empty
+    # table is never evidence about couplings, so it is ignored. A table with
+    # real content is believed, including when it shows only one pair gone —
+    # that is exactly what a genuine split looks like, and the cost of being
+    # wrong is small (the order is relearned the next time the pair moves).
+    known = latch.known_pairs()
+    missing = known - seen_pairs
+    forgotten = 0
+    if not merged and missing:
+        LOG.info("order latch: empty consist table, keeping %d remembered "
+                 "order(s) rather than reading it as %d splits",
+                 len(known), len(missing))
+    else:
+        for a, b in missing:
+            forgotten += latch.forget_pair(a, b)
+
+    latch.save()
+    if stored or restored or forgotten:
+        LOG.info("order latch: %d stored, %d restored from memory, "
+                 "%d forgotten, %s", stored, restored, forgotten,
+                 latch.stats())
 
 
 @app.get("/api/alerts")

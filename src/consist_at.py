@@ -247,6 +247,11 @@ def merge(at_couples: dict[str, dict],
             row["cars"] = inf.get("cars")
             row["gap_m"] = inf.get("gap_m")
             row["order_source"] = "inferred"
+            # Carried through so the caller can score this determination for
+            # the order latch; see order_latch.score().
+            for k in ("speed_mps", "brg_diff", "fix_skew_s"):
+                if inf.get(k) is not None:
+                    row[k] = inf[k]
         elif inf and at.get("partner") and inf.get("partner") != at.get("partner"):
             LOG.info("consist: AT pairs %s with %s, geometry said %s "
                      "- keeping AT, dropping order",

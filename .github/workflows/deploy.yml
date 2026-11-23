@@ -75,10 +75,14 @@ jobs:
       - name: Unit tests
         run: |
           test -f src/test_trailing.py || { echo "trailing-half gate missing"; exit 1; }
+          test -f src/test_order_latch.py || { echo "order-latch gate missing"; exit 1; }
+          test -f src/test_order_latch_e2e.py || { echo "order-latch e2e gate missing"; exit 1; }
           python src/test_feedback.py
           python src/test_consist_at.py
           python src/test_alerts.py
           python src/test_trailing.py
+          python src/test_order_latch.py
+          python src/test_order_latch_e2e.py
 
       - name: Build image locally
         # Build before touching Fly. A Dockerfile error should fail here, not
