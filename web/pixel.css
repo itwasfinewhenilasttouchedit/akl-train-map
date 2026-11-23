@@ -105,7 +105,7 @@ body.pixel {
   --focus:  var(--e-ao);
   --red:    var(--e-shu);
 
-  font-family: 'DotGothic16', 'Courier New', monospace;
+  font-family: 'Pixelify Sans', 'Courier New', monospace;
   background: var(--e-white);
   color: var(--e-sumi);
   /* Faint 8px graph-paper grid — a drafting sheet, which suits daylight.
@@ -135,6 +135,8 @@ body.pixel #fbwrap,
 body.pixel #jpwrap,
 body.pixel #stwrap,
 body.pixel #legend,
+body.pixel #pickwrap,
+body.pixel #sp,
 body.pixel #toast {
   background: var(--e-ivory) !important;
   border: 2px solid var(--e-ao) !important;
@@ -144,6 +146,34 @@ body.pixel #toast {
     var(--px) var(--px) 0 0 rgba(21,32,46,.26) !important;
   color: var(--e-sumi) !important;
 }
+/* #spwrap is only the dimming backdrop -- it must NOT get the ivory panel
+   treatment above, or the whole viewport turns into one giant card. The
+   panel inside it (#sp) is the card. */
+body.pixel #spwrap { background: rgba(21,32,46,.55) !important; }
+
+/* Chooser + station rows: ink on ivory, selection in the ao field so the
+   highlight reads as a chosen ticket rather than a hover tint. */
+body.pixel .pickrow,
+body.pixel .sprow { color: var(--e-sumi) !important; }
+body.pixel .pickrow:hover, body.pixel .pickrow:focus,
+body.pixel .sprow:hover, body.pixel .sprow.sel {
+  background: var(--e-ao) !important;
+  color: var(--e-white) !important;
+}
+body.pixel .pickrow:hover .picksub,
+body.pixel .sprow.sel .picksub { color: var(--e-white) !important; }
+body.pixel .pickico { color: var(--e-ao) !important; }
+body.pixel .pickrow:hover .pickico,
+body.pixel .sprow:hover .pickico,
+body.pixel .sprow.sel .pickico { color: var(--e-gold) !important; }
+body.pixel .pickico svg { image-rendering: pixelated; }
+body.pixel #pickhdr,
+body.pixel .spnone { color: var(--e-muted) !important; }
+body.pixel #pickhdr,
+body.pixel #sptitle {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+}
 
 /* --- the station nameboard ---------------------------------------------
    A real JR platform sign is white-on-blue, so the header is the one dark
@@ -151,7 +181,7 @@ body.pixel #toast {
    an otherwise very light layout. */
 body.pixel #hudbar {
   position: relative;
-  font-family: 'Press Start 2P', 'DotGothic16', monospace;
+  font-family: 'Press Start 2P', 'Pixelify Sans', monospace;
   font-size: 10px;
   line-height: 1.6;
   color: #ffffff;
@@ -161,14 +191,12 @@ body.pixel #hudbar {
   text-shadow: 2px 2px 0 rgba(0,0,0,.45);
   text-transform: uppercase;
 }
-body.pixel #hudbar::before {
-  content: 'STN';
-  font-family: 'DotGothic16', monospace;
-  font-size: 14px;
-  color: var(--e-copper);
-  margin-right: calc(var(--px) * 2);
-  text-shadow: 2px 2px 0 rgba(0,0,0,.45);
-}
+/* The ::before used to inject a literal 'STN' text badge here. The header now
+   carries the pixel conductor mark (#brand) as real markup, so a second
+   pseudo-element badge would be two logos in one strip. Removed deliberately:
+   the brand belongs in the DOM where it can be sized and recoloured, not in
+   a content string. */
+body.pixel #brand svg { image-rendering: pixelated; }
 /* The chevron sits ON the dark header, so it must be light, not ink. */
 body.pixel #chev { color: #ffffff; }
 
@@ -179,7 +207,7 @@ body.pixel #sttitle {
 }
 body.pixel #sttitle::before {
   content: 'PLATFORM ';
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
   color: var(--e-gold);
   font-size: 12px;
 }
@@ -191,7 +219,7 @@ body.pixel #sheetbtn,
 body.pixel #planbtn,
 body.pixel #fbcancel,
 body.pixel #jpgps {
-  font-family: 'DotGothic16', monospace !important;
+  font-family: 'Pixelify Sans', monospace !important;
   font-size: 13px;
   background: var(--e-white);
   color: var(--e-ao);
@@ -220,7 +248,7 @@ body.pixel .pill:active {
 /* Primary action: the ao band itself, white text. */
 body.pixel #fbsend,
 body.pixel #jpgo {
-  font-family: 'DotGothic16', monospace !important;
+  font-family: 'Pixelify Sans', monospace !important;
   font-size: 13px;
   background: var(--e-ao);
   color: #ffffff;
@@ -285,7 +313,7 @@ body.pixel .leaflet-popup-tip {
   border: 2px solid var(--e-ao);
   box-shadow: inset 0 0 0 2px var(--e-white),
               var(--px) var(--px) 0 0 rgba(21,32,46,.26);
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
 }
 body.pixel .leaflet-popup-close-button {
   color: var(--e-shu) !important;
@@ -303,7 +331,7 @@ body.pixel .leaflet-bar a:hover { background: var(--e-sora-l); }
 
 /* Station tooltips: small white platform tags with a copper edge. */
 body.pixel .stname {
-  font-family: 'DotGothic16', monospace !important;
+  font-family: 'Pixelify Sans', monospace !important;
   background: rgba(255,255,255,.95) !important;
   color: var(--e-ao) !important;
   border: 1px solid var(--e-copper) !important;
@@ -322,7 +350,7 @@ body.pixel .good::before { content: '+ ';  color: var(--e-matsu); }
 body.pixel .good { color: var(--e-matsu) !important; font-weight: bold; }
 
 body.pixel .tag {
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
   background: var(--e-white);
   border: 1px solid var(--e-ao);
   box-shadow: 2px 2px 0 0 rgba(21,32,46,.2);
@@ -339,12 +367,13 @@ body.pixel #stat, body.pixel #fbcount {
   color: var(--e-matsu);
   text-shadow: none;
 }
-body.pixel #sub, body.pixel #note { color: var(--e-muted); font-size: 12px; }
+/* #sub and #note were removed from the markup (header weight + prose cull);
+   their rules are gone with them rather than left as dead selectors. */
 body.pixel #err { color: var(--e-shu); font-weight: bold; }
 
 /* --- form fields: white, inset, blue rule -------------------------------- */
 body.pixel input, body.pixel select, body.pixel textarea {
-  font-family: 'DotGothic16', monospace !important;
+  font-family: 'Pixelify Sans', monospace !important;
   background: #ffffff !important;
   color: var(--e-sumi) !important;
   border: 2px solid var(--e-ao) !important;
@@ -356,7 +385,7 @@ body.pixel input::placeholder, body.pixel textarea::placeholder {
 
 body.pixel #list .row, body.pixel #stres .row, body.pixel #jpres .row {
   border-bottom: 1px dashed var(--line);
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
 }
 body.pixel #stmsg, body.pixel #jpmsg, body.pixel #fbmsg {
   color: var(--e-sora);
@@ -381,7 +410,7 @@ body.pixel *::-webkit-scrollbar-thumb:hover { background: var(--e-ao-dk); }
   min-width: 44px;      /* 2.5.5 target size, same as every other control */
   min-height: 44px;
   padding: 0 10px;
-  font: 12px/1 'DotGothic16', monospace;
+  font: 12px/1 'Pixelify Sans', monospace;
   cursor: pointer;
   background: #161c24;
   color: #e8edf2;
@@ -453,7 +482,10 @@ body.pixel #skinbtn {
     100% { transform: translate(24px, 102vh) }
   }
 
-  body.pixel #hudbar::before { animation: blink 2s steps(2) infinite; }
+  /* Was the removed 'STN' ::before badge. The conductor's whistle is the
+     natural thing to pulse instead, but animating the whole mark would be
+     distracting -- so nothing blinks here now. Keyframes kept: the alert
+     bell uses them. */
   @keyframes blink { 0%, 49% { opacity: 1 } 50%, 100% { opacity: .5 } }
 }
 
@@ -464,7 +496,7 @@ body.pixel #skinbtn {
    and NOT the title, which was my first and wrong guess; cutting display font
    sizes alone moved the total only 169 -> 157px.
 
-   Cause: DotGothic16 is optically wider per character than the system sans,
+   Cause: the pixel body face is optically wider per character than the system sans,
    so "updated 12s ago · live GPS positions" wraps first. Tightening #stat and
    its .age line-height is what actually recovers the space.
 
@@ -479,13 +511,14 @@ body.pixel #skinbtn {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  body.pixel #hudbar::before { font-size: 11px; margin-right: var(--px); }
+  /* Brand mark shrinks with the header on a phone. */
+  body.pixel #brand svg { width: 22px; height: 28px; }
 
   body.pixel #stat { font-size: 8px; letter-spacing: 0; line-height: 1.25; }
   body.pixel #stat .age { font-size: 9px; line-height: 1.25; }
   body.pixel #stat .B { font-size: 13px; line-height: 1.2; }
   body.pixel #fbcount { font-size: 8px; letter-spacing: 0; }
-  body.pixel #sub, body.pixel #note { font-size: 10px; letter-spacing: 0; }
+
   body.pixel #sttitle { font-size: 9px; letter-spacing: 0; }
   body.pixel #hudbody { font-size: 11px; }
   /* The global .02em tracking is a desktop nicety; at 390px it is the
@@ -803,7 +836,7 @@ body.pixel #stres .bhead {
      only agree across rows if its content agrees, and here it never does. */
   grid-template-columns: 64px 46px 1fr 68px 38px;
   gap: 8px;
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
   font-size: 9px;
   letter-spacing: .06em;
   /* #c2ae86 = 7.21:1 on the sepia ground. The old #8a7a5c measured 4.47:1 on
@@ -833,13 +866,13 @@ body.pixel #stres .btime {
   font-variant-numeric: tabular-nums;
 }
 body.pixel #stres .bsched {
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
   font-size: 11px;
   color: #e0b050;
   font-variant-numeric: tabular-nums;
 }
 body.pixel #stres .bdest {
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
   font-size: 13px;
   color: #f0e2c4;
   text-transform: uppercase;
@@ -877,12 +910,12 @@ body.pixel #stres .brow.cancelled .cx {
    would be 2.7:1 here. */
 body.pixel #stres .muted {
   color: #b09a6e !important;
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
 }
 
 /* Status line above the board keeps the panel's own ink; it is page chrome,
    not part of the emitting object. */
-body.pixel #stmsg { font-family: 'DotGothic16', monospace; }
+body.pixel #stmsg { font-family: 'Pixelify Sans', monospace; }
 
 @media (max-width: 430px) {
   /* 390px cannot hold the four-column heading; drop to the two labels that
@@ -929,7 +962,7 @@ body.pixel #stres .setlink {
      the row quietly. */
   border: 1px solid #6b5518;
   box-shadow: none;
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
   font-size: 11px;
   padding: 2px 4px;
   justify-self: start;
@@ -943,7 +976,7 @@ body.pixel #stres .setlink:focus-visible {
 
 /* --- pixel-font fallout on the HUD chrome ---------------------------------
    Two MEASURED regressions the older shot_ui4.py suite caught when the skin
-   became the default. Both have the same cause: 'DotGothic16' is wider per
+   became the default. Both have the same cause: 'Pixelify Sans' is wider per
    glyph than the default UI font, so anything sized to fit the old face no
    longer fits. Neither was visible in the pixel skin while it was opt-in,
    because nobody ran the default-theme layout suite against it.
@@ -1008,7 +1041,7 @@ body.pixel #stres .noset {
   min-width: 62px;
   text-align: center;
   color: #6b5f48;
-  font-family: 'DotGothic16', monospace;
+  font-family: 'Pixelify Sans', monospace;
   font-size: 13px;
 }
 

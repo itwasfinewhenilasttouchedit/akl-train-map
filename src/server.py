@@ -200,10 +200,18 @@ def _annotate_consists() -> None:
         return
     trains = d.get("trains") or []
     if not trains:
+        # Still recount: an empty feed must report 0 services, not whatever
+        # the previous poll left behind.
+        _recount_services(d)
         return
 
     couples = _consist_map()
     if not couples:
+        # No coupling info this poll (3-car-only running, or the consist feed
+        # failed). There are still services to count -- every vehicle is its
+        # own train -- so the count must not be skipped. Returning early here
+        # without counting was how the stale vehicle figure survived.
+        _recount_services(d)
         return
 
     by_set = {}
@@ -278,8 +286,45 @@ def _annotate_consists() -> None:
         d["trailing_halves"] = rescued
         d["out_of_service"] = max(0, int(d.get("out_of_service") or 0) - rescued)
         d["in_service"] = int(d.get("in_service") or 0) + rescued
+
+    # SERVICE COUNT -- see _recount_services(). Must run after the
+    # trailing-half annotation above, because it keys off `trailing_half`.
+    _recount_services(d)
     LOG.info("consist: %s; rescued %d trailing half/halves (%d re-ordered by geometry)",
              consist_at.summarise(couples), rescued, regeom)
+
+
+def _recount_services(d: dict) -> None:
+    """Count TRAINS, not GPS vehicles.
+
+    THE BUG THIS FIXES
+    ------------------
+    A 6-car service is two coupled 3-car sets, and AT publishes a separate GPS
+    vehicle for each half. live.collect() counts vehicles, so every 6-car
+    service was counted twice while the map -- which skips `trailing_half` --
+    drew it once. Measured on production: the HUD claimed 71 in service while
+    39 markers existed, overstating by 32. 39 was also exactly the number of
+    distinct trip_ids, which is the independent confirmation that the service
+    figure is the honest answer to "how many trains are running".
+
+    `in_service` is the number a rider reads, so it means SERVICES.
+    `vehicles_in_service` keeps the raw vehicle figure for the health endpoint
+    and the archive, which legitimately care about hardware.
+
+    Called from every return path of _annotate_consists(), including the early
+    ones: an empty feed must report 0 rather than last poll's figure.
+    """
+    trains = d.get("trains") or []
+    veh_in = sum(1 for t in trains if t.get("in_service") is not False)
+    # Same predicate the client uses to decide whether to draw a marker, so
+    # the number in the HUD and the number of icons cannot disagree.
+    svc = sum(1 for t in trains
+              if t.get("in_service") is not False and not t.get("trailing_half"))
+    oos_units = sum(1 for t in trains if t.get("in_service") is False)
+    d["vehicles_in_service"] = veh_in
+    d["in_service"] = svc
+    d["out_of_service"] = oos_units
+    d["coupled_halves"] = veh_in - svc
 
 
 app = FastAPI(title="Auckland live train map")

@@ -15,7 +15,7 @@ Self-hosting also removes a render-blocking third-party request from the
 critical path.
 
 LICENCE -- the reason this is allowed where the tileset was not
-DotGothic16 and Press Start 2P are both SIL Open Font License 1.1, which
+Pixelify Sans and Press Start 2P are both SIL Open Font License 1.1, which
 EXPLICITLY permits redistribution (bundled or sold, modified or not) provided
 the licence travels with the font and the Reserved Font Name is respected. We
 rename nothing, so there is no RFN issue. Contrast with the purchased
@@ -24,11 +24,15 @@ stay out of this public repo, these fonts may live in it. Two assets, two
 licences, opposite conclusions; do not reason about one from the other.
 
 SUBSETTING
-DotGothic16 is a Japanese font: Google serves it as 120+ unicode-range
-subsets. The project enforces zero CJK, so we take the Latin subsets only.
-Pulling all 128 would add megabytes of glyphs we are contractually -- by our
-own rule -- never going to render.
+We take the Latin subsets only (0000-00FF). The retired body face was a
+Japanese font served as 120+ unicode-range subsets; the project enforces zero
+CJK, so that rule was load-bearing and is kept for any future face.
+
+Pixelify Sans is served by Google as a VARIABLE font, so the 400/600/700 URLs
+all point at one byte-identical file. We hash the downloads and emit a single
+woff2 with `font-weight: 400 700` rather than three copies of the same bytes.
 """
+import hashlib
 import os
 import re
 import sys
@@ -36,8 +40,15 @@ import urllib.request
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+# BODY FACE: Pixelify Sans, not DotGothic16.
+# DotGothic16 is a hairline 1px face designed for CJK at 16px. On macOS
+# subpixel antialiasing it renders visibly wispy -- reported from a real Mac,
+# and the cause is the glyph weight, NOT the delivery origin (these fonts were
+# already self-hosted when it was reported). Swapping the CDN would have fixed
+# nothing. Pixelify Sans carries a heavier stem and reads cleanly at 12-13px.
 CSS_URL = ("https://fonts.googleapis.com/css2"
-           "?family=DotGothic16&family=Press+Start+2P&display=swap")
+           "?family=Pixelify+Sans:wght@400;600;700"
+           "&family=Press+Start+2P&display=swap")
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "web", "fonts")
 
@@ -66,6 +77,12 @@ def main() -> int:
 
     out_rules = []
     saved = 0
+    # sha256 -> filename already written. Google serves Pixelify Sans as a
+    # VARIABLE font: the 400, 600 and 700 CSS blocks all point at the SAME
+    # woff2 (verified identical sha256). Writing one file per weight shipped
+    # three byte-identical 12 KB copies and made the browser fetch the same
+    # bytes up to three times. Dedupe on content and emit a weight RANGE.
+    by_hash: dict = {}
     for b in blocks:
         rng = re.search(r"unicode-range:\s*([^;]+);", b)
         if not rng or not rng.group(1).strip().startswith(WANTED_PREFIXES):
@@ -77,22 +94,40 @@ def main() -> int:
 
         slug = fam.lower().replace(" ", "-")
         tag = rng.group(1).strip().split(",")[0].replace("U+", "").replace("-", "_")
+        data = fetch(url)
+        digest = hashlib.sha256(data).hexdigest()
+
+        if digest in by_hash:
+            # Same bytes as a face we already saved: record the weight so the
+            # emitted rule can span the full range, and do not write again.
+            prev = by_hash[digest]
+            prev["weights"].append(weight)
+            print(f"  dedup {prev['name']:44s} also serves weight {weight}")
+            continue
+
         name = f"{slug}-{tag}.woff2"
         path = os.path.join(OUT_DIR, name)
-        data = fetch(url)
         with open(path, "wb") as fh:
             fh.write(data)
         saved += 1
         print(f"  saved {name:44s} {len(data):7d} B  ({fam} {weight})")
+        by_hash[digest] = {"name": name, "fam": fam, "weights": [weight],
+                           "range": rng.group(1).strip()}
 
+    for e in by_hash.values():
+        # A variable face advertises a range ("400 700"); a static one a single
+        # value. Declaring 400 only, then asking for 600, makes the browser
+        # synthesise a fake bold -- which on a pixel font looks like smearing.
+        ws = sorted({int(w) for w in e["weights"] if w.isdigit()})
+        wspec = f"{ws[0]} {ws[-1]}" if len(ws) > 1 else (str(ws[0]) if ws else "400")
         out_rules.append(
             "@font-face {\n"
-            f"  font-family: '{fam}';\n"
+            f"  font-family: '{e['fam']}';\n"
             "  font-style: normal;\n"
-            f"  font-weight: {weight};\n"
+            f"  font-weight: {wspec};\n"
             "  font-display: swap;\n"
-            f"  src: url('/static/fonts/{name}') format('woff2');\n"
-            f"  unicode-range: {rng.group(1).strip()};\n"
+            f"  src: url('/static/fonts/{e['name']}') format('woff2');\n"
+            f"  unicode-range: {e['range']};\n"
             "}"
         )
 

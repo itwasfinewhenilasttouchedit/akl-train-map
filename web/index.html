@@ -4,17 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Auckland Live Train Map</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<!-- Leaflet, self-hosted from web/vendor/ (fetched + SRI-checked by
+     src/fetch_leaflet.py). Was unpkg.com, which handed every visitor's IP to
+     a third-party CDN before the map drew -- the same objection that put the
+     fonts on this origin. No integrity= attribute here: SRI exists to police
+     a third party, and these bytes are verified at build time and served from
+     the same origin as the page that references them. -->
+<link rel="stylesheet" href="/static/vendor/leaflet.css">
 <!-- DENSHA pixel skin. Scoped to body.pixel, so loading it costs nothing
      visually until the rider opts in. See web/pixel.css for the design notes. -->
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=e8914bea4c">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-        crossorigin="anonymous">
-</script>
+<link rel="stylesheet" href="/static/pixel.css?v=44801a658f">
+<script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
          /* --line was 1.36:1 against the panel: invisible in sunlight. It stays,
@@ -34,7 +37,17 @@
            border:1px solid var(--line); border-radius:12px;
            box-shadow:0 8px 28px rgba(0,0,0,.5); }
   #hud { top:12px; left:12px; padding:12px 14px; min-width:226px; max-width:260px; }
-  #hud h1 { margin:0; font-size:15px; font-weight:600; }
+  /* HEADER: lighter, and branded.
+     Was "Auckland trains — live" over a subtitle line ("Auckland Transport
+     open data") and a prose note ("Updates every 10s.") -- three stacked rows
+     of text before a rider saw a single train. The subtitle and note are gone
+     (the credit is in the map attribution where credits belong, and "updated
+     Ns ago" already says the thing the note was claiming). What remains is
+     the conductor mark, the wordmark, and the live count. */
+  #hud h1 { margin:0; font-size:17px; font-weight:400; letter-spacing:.5px;
+            line-height:1; text-transform:lowercase; }
+  #brand { display:flex; align-items:center; flex:0 0 auto; }
+  #brand svg { display:block; }
   /* Header row carries the collapse toggle. The whole row is the hit target —
      a 14px chevron alone is a miserable thing to tap on a phone. */
   #hudbar { display:flex; align-items:center; gap:8px; cursor:pointer; min-height:44px;
@@ -46,12 +59,54 @@
   #hud.collapsed #chev { transform:rotate(-90deg); }
   #hudbody { max-height:62vh; overflow:auto; }
   #hud.collapsed #hudbody { display:none; }
-  #hud.collapsed #sub { display:none; }
   #hud.collapsed #stat { margin-bottom:0; }
-  #sub { color:var(--muted); font-size:11px; margin-bottom:8px; }
   #stat { font-size:12.5px; margin-bottom:10px; }
   #stat b { font-size:19px; font-weight:600; }
   #stat .age { color:var(--muted); font-size:11.5px; }
+
+  /* ---- overlap chooser ----
+     Fixed, not absolute: it is positioned from clientX/clientY, which are
+     viewport coordinates. Absolute would drift by the scroll offset. */
+  #pickwrap { position:fixed; z-index:1200; display:none;
+              min-width:208px; max-width:272px;
+              background:var(--panel); border:1px solid var(--line);
+              border-radius:9px; padding:6px;
+              box-shadow:0 8px 28px rgba(0,0,0,.5); }
+  #pickwrap.on { display:block; }
+  #pickhdr { font-size:11px; color:var(--muted); padding:3px 6px 6px; }
+  .pickrow { display:flex; align-items:center; gap:9px; width:100%;
+             background:none; border:0; color:var(--fg); cursor:pointer;
+             text-align:left; padding:8px 6px; border-radius:7px;
+             font:inherit; min-height:44px; }
+  .pickrow:hover, .pickrow:focus { background:#1f2733; outline:none; }
+  .pickrow:focus-visible { box-shadow:inset 0 0 0 2px var(--fg); }
+  .pickico { flex:0 0 16px; line-height:0; color:var(--muted); }
+  .picktxt { display:flex; flex-direction:column; gap:1px; min-width:0; }
+  .picktxt b { font-size:13px; font-weight:600; }
+  .picksub { font-size:11px; color:var(--muted);
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* ---- station search ----
+     A real overlay, so it can be skinned and filtered, unlike prompt(). */
+  #spwrap { position:fixed; inset:0; z-index:1300; display:none;
+            background:rgba(5,8,12,.62); backdrop-filter:blur(2px);
+            align-items:center; justify-content:center; padding:16px; }
+  #spwrap.on { display:flex; }
+  #sp { width:100%; max-width:380px; max-height:78vh;
+        display:flex; flex-direction:column; padding:14px; }
+  #sp h2 { margin:0 0 10px; font-size:15px; font-weight:600; }
+  #spq { width:100%; box-sizing:border-box; background:#0f1520;
+         border:1px solid var(--edge); border-radius:8px; color:var(--fg);
+         font:inherit; font-size:16px; padding:11px 12px; min-height:44px; }
+  #spq:focus { outline:none; border-color:var(--fg); }
+  #spbody { margin-top:10px; overflow-y:auto; flex:1 1 auto; min-height:80px; }
+  .sprow { display:flex; align-items:center; gap:9px; width:100%;
+           background:none; border:0; color:var(--fg); cursor:pointer;
+           text-align:left; padding:9px 7px; border-radius:7px;
+           font:inherit; min-height:44px; }
+  .sprow:hover, .sprow.sel { background:#1f2733; }
+  .sprow.sel { box-shadow:inset 0 0 0 1px var(--edge); }
+  .spnone { color:var(--muted); font-size:12.5px; padding:14px 7px; }
   .dot { display:inline-block; width:7px; height:7px; border-radius:50%;
          background:#3fb950; margin-right:5px; vertical-align:1px; }
   .dot.stale { background:#d29922; } .dot.dead { background:#f85149; }
@@ -347,6 +402,25 @@
      row, so the bar stops short of it rather than running underneath — a
      screenshot caught the Plan pill hidden behind the PIXEL toggle. ~86px
      covers the wider "PIXEL ON" label plus its 8px inset. */
+  /* MAP CREDIT: moved up and out of the controls' way.
+     Leaflet pins .leaflet-control-attribution to the bottom-right of the map
+     at y=885 in a 900px viewport. Measured overlap: 3px into #favbar (and its
+     favaway/plan buttons) and 7-9px into #skinbtn -- enough to eat the edge of
+     a 52px tap target and make the bottom row look broken.
+     Fixed by lifting the credit above the control row and letting pointer
+     events through the empty part of the strip, so the credit can never
+     swallow a tap meant for a button. The links inside stay clickable. */
+  .leaflet-control-attribution { pointer-events:none;
+            margin:0 !important; padding:1px 8px !important;
+            font-size:10px !important; line-height:14px !important;
+            background:rgba(13,17,23,.78) !important;
+            color:var(--muted) !important;
+            border-radius:6px 0 0 0 !important; }
+  .leaflet-control-attribution a { pointer-events:auto;
+            color:var(--muted) !important; }
+  /* The bottom-right control corner holds the credit; lift the whole corner
+     clear of the 52px button row plus its 12px inset. */
+  .leaflet-bottom.leaflet-right { bottom:74px; }
   #favbar { position:absolute; z-index:650; bottom:12px;
             left:8px; right:94px; gap:8px; justify-content:center; }
   .favbtn, #planbtn { background:var(--panel);
@@ -622,15 +696,72 @@
 <div id="hud" class="panel">
   <div id="hudbar" role="button" tabindex="0" aria-expanded="true"
        aria-controls="hudbody" title="Show or hide the details">
-    <h1>Auckland trains — live</h1>
+    <!-- HOKI BRAND MARK: a pixel-art train conductor, hand-authored on a
+         16x20 integer grid as inline SVG. Hand-drawn rather than generated:
+         crisp at every DPR, ~1 KB, no extra request, and recolourable from
+         CSS. shape-rendering=crispEdges keeps the pixels hard when the
+         browser scales it.
+         Decorative only -- the <h1> next to it carries the actual name, so
+         this is aria-hidden to avoid announcing the brand twice. -->
+    <span id="brand" aria-hidden="true">
+      <svg viewBox="0 0 16 20" width="28" height="35" shape-rendering="crispEdges">
+        <!-- cap -->
+        <path fill="#1b2a4a" d="M4 1h8v2H4z"/>
+        <path fill="#2d4374" d="M3 3h10v1H3z"/>
+        <path fill="#c9a227" d="M5 2h6v1H5z"/>
+        <!-- cap brim -->
+        <path fill="#121a2e" d="M2 4h12v1H2z"/>
+        <!-- face -->
+        <path fill="#e8c9a0" d="M4 5h8v4H4z"/>
+        <path fill="#1b2a4a" d="M5 6h1v1H5zM10 6h1v1h-1z"/>
+        <path fill="#b3785a" d="M7 8h2v1H7z"/>
+        <!-- jacket, Hoki green -->
+        <path fill="#97c93d" d="M3 9h10v7H3z"/>
+        <path fill="#6f9a2a" d="M3 9h10v1H3z"/>
+        <!-- collar + buttons -->
+        <path fill="#f4f7ef" d="M6 9h4v2H6z"/>
+        <path fill="#c9a227" d="M7 11h1v1H7zM7 13h1v1H7z"/>
+        <!-- arms -->
+        <path fill="#7fae33" d="M2 10h1v5H2zM13 10h1v5h-1z"/>
+        <!-- whistle, raised in the right hand -->
+        <path fill="#c9a227" d="M14 9h1v2h-1z"/>
+        <!-- legs -->
+        <path fill="#1b2a4a" d="M4 16h3v3H4zM9 16h3v3H9z"/>
+        <path fill="#121a2e" d="M3 19h4v1H3zM9 19h4v1H9z"/>
+      </svg>
+    </span>
+    <h1>hoki</h1>
     <span id="chev">▾</span>
   </div>
-  <div id="sub">Auckland Transport open data</div>
   <div id="stat" aria-live="polite" aria-atomic="true"><span class="dot dead"></span>connecting…</div>
   <div id="hudbody">
     <div class="legend" id="legend"></div>
     <div class="err" id="err" role="alert"></div>
-    <div class="note" id="note">Updates every 10s.</div>
+  </div>
+</div>
+<!-- Overlap chooser. Shown only when a click lands on more than one thing
+     (train + station, or two coupled halves). Positioned in JS near the
+     pointer and clamped to the viewport; role=dialog because it takes focus
+     and Escape closes it. -->
+<div id="pickwrap" role="dialog" aria-label="Pick what you meant">
+  <div id="pickhdr">What did you mean?</div>
+  <div id="pickbody"></div>
+</div>
+<!-- Station search. Replaces a native prompt(), which could not be skinned,
+     could not filter as you type, and forced a substring guess on whatever
+     was typed. Centred rather than pointer-positioned: it is a deliberate
+     task, not a disambiguation. -->
+<div id="spwrap" role="dialog" aria-modal="true" aria-labelledby="sptitle">
+  <div id="sp" class="panel">
+    <h2 id="sptitle">Pick a station</h2>
+    <input id="spq" type="search" autocomplete="off" autocapitalize="off"
+           spellcheck="false" aria-controls="spbody"
+           aria-label="Search stations" placeholder="Type to search…">
+    <div id="spbody" role="listbox" aria-label="Stations"></div>
+    <div class="acts">
+      <button class="btn" id="spcancel" type="button">Cancel</button>
+      <button class="btn ghost" id="spclear" type="button" hidden>Clear</button>
+    </div>
   </div>
 </div>
 <!-- Favourite stations replace the generic arrivals sheet. "Arrivals" listed
@@ -654,8 +785,8 @@
 <div id="jpwrap">
   <div id="jp" class="panel">
     <h2>Plan a journey</h2>
-    <div class="hint">Direct trains only. We'll warn you if the train
-      that turns up has pee reports against it.</div>
+    <div class="hint">Direct trains only &mdash; we'll flag anything
+      reported on your service.</div>
     <div class="row2">
       <div>
         <label class="f" for="jpfrom">From</label>
@@ -682,8 +813,7 @@
 <div id="stwrap">
   <div id="st" class="panel">
     <h2 id="sttitle">Station</h2>
-    <div class="hint">Next departures. A set number appears only once AT has
-      actually assigned one.</div>
+    <div class="hint">Next departures</div>
     <div class="msg" id="stmsg"></div>
     <div id="stres"></div>
     <div class="acts"><button class="btn" id="stclose">Close</button></div>
@@ -801,10 +931,12 @@ bar.onkeydown = e => {
 // of a commute: Home and the other end, and the second is relabelable because
 // it is work for some people and school or the gym for others.
 //
-// localStorage, not a server account: the site holds no identity by design
-// (see the privacy decision — no reporter column, no IPs, no analytics), and a
-// favourite station is exactly the kind of thing that must not become a
+// localStorage, not a server account: the site holds no account identity, and
+// a favourite station is exactly the kind of thing that must not become a
 // profile. Price is that favourites are per-device, which is the right trade.
+// Note the origin DOES keep a first-party access log including client IPs
+// (GoAccess, internal dashboard only) — do not restore the old "no IPs, no
+// analytics" claim here, it stopped being true when that log was added.
 const listEl = document.getElementById('list');
 const FAVKEY = 'favStations';
 
@@ -842,9 +974,15 @@ function renderFavs() {
 
 // Picking a station reuses the stations list the journey planner already
 // fetches, so there is no second source of station names to drift.
+//
+// WAS A SYSTEM prompt(). That is a native modal: unstyled, unskinnable,
+// blocking, impossible to search incrementally, and on iOS it renders as an
+// OS sheet that looks nothing like the rest of the page. It also forced a
+// substring-match guess on a typed string -- "new" silently resolving to
+// Newmarket or New Lynn by shortest-name tie-break. A list you can see and
+// filter removes the guess entirely.
 async function pickFav(slot) {
   const dflt = slot === 'home' ? 'Home' : 'Away';
-  const f = favs();
   // STATIONS is a plain `let` in this inline script, NOT window.STATIONS —
   // a window.* guard here would be permanently undefined (the same mistake
   // was made with drawCars and LAST_TRAINS). ensureStations() has already
@@ -852,32 +990,130 @@ async function pickFav(slot) {
   const list = await ensureStations();
   const names = (list || []).map(x => x.name || x).sort();
   if (!names.length) { toast('station list not loaded yet'); return; }
-  const cur = f[slot] && f[slot].station;
-  const pick = prompt(
-    `Which station is your ${dflt}?\n\n` +
-    `Type a name, or part of one. Leave blank to clear.`,
-    cur || '');
-  if (pick === null) return;                       // cancelled
-  if (!pick.trim()) { delete f[slot]; saveFavs(f); return; }
-  // Substring match, case-insensitive, shortest wins — "new" should land on
-  // Newmarket rather than New Lynn only if it is genuinely the closer match,
-  // so an exact hit is always preferred first.
-  const q = pick.trim().toLowerCase();
-  const exact = names.find(n => n.toLowerCase() === q);
-  const hits = names.filter(n => n.toLowerCase().includes(q));
-  const chosen = exact || (hits.length ? hits.sort((a,b) => a.length-b.length)[0] : null);
-  if (!chosen) { toast(`No station matching "${pick.trim()}"`); return; }
-  // Only the Away slot is relabelable; Home is Home.
-  let label = dflt;
-  if (slot === 'away') {
-    const l = prompt('Label for this one? (work, school, gym…)',
-                     (f.away && f.away.label) || 'Away');
-    if (l && l.trim()) label = l.trim().slice(0, 12);
-  }
-  f[slot] = { station: chosen, label };
-  saveFavs(f);
-  openBoard(chosen);
+  const f = favs();
+  openStationPicker({
+    title: `Which station is your ${dflt}?`,
+    names,
+    current: f[slot] && f[slot].station,
+    allowClear: !!(f[slot] && f[slot].station),
+    onClear: () => { const g = favs(); delete g[slot]; saveFavs(g); renderFavs(); },
+    onPick: (chosen) => {
+      const g = favs();
+      // Only the Away slot is relabelable; Home is Home.
+      const label = slot === 'away'
+        ? ((g.away && g.away.label) || 'Away') : dflt;
+      g[slot] = { station: chosen, label };
+      saveFavs(g);
+      renderFavs();
+      openBoard(chosen);
+    },
+  });
 }
+
+// Pixel station search. One generic picker, so Home and Away cannot drift
+// apart, and so the same widget can be reused anywhere a station is needed.
+let SP_STATE = null;
+
+function closeStationPicker() {
+  const w = document.getElementById('spwrap');
+  if (w) w.classList.remove('on');
+  SP_STATE = null;
+}
+
+function openStationPicker({ title, names, current, allowClear, onPick, onClear }) {
+  const wrap = document.getElementById('spwrap');
+  if (!wrap) return;
+  SP_STATE = { names, onPick, onClear, idx: 0, filtered: names };
+  document.getElementById('sptitle').textContent = title;
+  const clr = document.getElementById('spclear');
+  clr.hidden = !allowClear;
+  const inp = document.getElementById('spq');
+  inp.value = '';
+  inp.placeholder = current ? `Currently ${current}` : 'Type to search…';
+  renderStationList('');
+  wrap.classList.add('on');
+  inp.focus();
+}
+
+function renderStationList(q) {
+  if (!SP_STATE) return;
+  const body = document.getElementById('spbody');
+  const needle = q.trim().toLowerCase();
+  // Prefix matches before substring matches: typing "new" should offer
+  // Newmarket and New Lynn ahead of anything merely containing "new".
+  const pre = [], sub = [];
+  for (const n of SP_STATE.names) {
+    const l = n.toLowerCase();
+    if (!needle) { pre.push(n); continue; }
+    if (l.startsWith(needle)) pre.push(n);
+    else if (l.includes(needle)) sub.push(n);
+  }
+  const hits = pre.concat(sub);
+  SP_STATE.filtered = hits;
+  if (SP_STATE.idx >= hits.length) SP_STATE.idx = 0;
+
+  if (!hits.length) {
+    body.innerHTML = `<div class="spnone">No station matching “${esc(q)}”</div>`;
+    return;
+  }
+  body.innerHTML = hits.slice(0, 60).map((n, i) => `
+    <button class="sprow${i === SP_STATE.idx ? ' sel' : ''}"
+            data-name="${esc(n)}" data-i="${i}">
+      <span class="pickico" aria-hidden="true">${STATION_GLYPH}</span>
+      <span class="picktxt"><b>${esc(n)}</b></span>
+    </button>`).join('');
+  body.querySelectorAll('.sprow').forEach(btn => {
+    btn.onclick = () => {
+      const cb = SP_STATE && SP_STATE.onPick;
+      const name = btn.dataset.name;
+      closeStationPicker();
+      if (cb) cb(name);
+    };
+  });
+  const sel = body.querySelector('.sprow.sel');
+  if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'nearest' });
+}
+
+// Station picker wiring. Incremental filter, arrow-key navigation, Enter to
+// take the highlighted row, Escape to cancel.
+(() => {
+  const inp = document.getElementById('spq');
+  const body = document.getElementById('spbody');
+  if (!inp) return;
+  inp.addEventListener('input', () => {
+    if (SP_STATE) SP_STATE.idx = 0;
+    renderStationList(inp.value);
+  });
+  inp.addEventListener('keydown', (e) => {
+    if (!SP_STATE) return;
+    const n = SP_STATE.filtered.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!n) return;
+      e.preventDefault();
+      SP_STATE.idx = (SP_STATE.idx + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+      renderStationList(inp.value);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const pick = SP_STATE.filtered[SP_STATE.idx];
+      if (!pick) return;
+      const cb = SP_STATE.onPick;
+      closeStationPicker();
+      if (cb) cb(pick);
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); closeStationPicker();
+    }
+  });
+  document.getElementById('spcancel').onclick = closeStationPicker;
+  document.getElementById('spclear').onclick = () => {
+    const cb = SP_STATE && SP_STATE.onClear;
+    closeStationPicker();
+    if (cb) cb();
+  };
+  // Click the backdrop (not the panel) to dismiss.
+  document.getElementById('spwrap').addEventListener('click', (e) => {
+    if (e.target.id === 'spwrap') closeStationPicker();
+  });
+})();
 
 for (const slot of ['home', 'away']) {
   const btn = document.getElementById('fav' + slot);
@@ -912,6 +1148,41 @@ L.control.zoom({ position:'topright' }).addTo(map);
 // panes this catches clicks on the map BACKGROUND and opens the board for a
 // station within 22px. Leaflet does not fire this when a marker handled the
 // click, so the train popup still takes priority on a direct hit.
+// ------------------------------------------------------- overlap disambiguation
+//
+// THE BUG THIS REPLACES (measured on production, not theorised):
+// A capture-phase listener used to claim ANY click within 20px of a station
+// dot and call stopPropagation(), on the reasoning that a train at a platform
+// sits 0-1px from the dot so the station needed to win. The cost was stated in
+// the old comment as "little". It was in fact total: clicking 14 train markers
+// opened 13 station boards and ZERO train popups. And because the report form
+// is only reachable from a train popup, rider reporting was unreachable for
+// every train actually stopped at a platform -- which is most of them, most of
+// the time. It presented as "reports don't work", on every device.
+//
+// Neither "train wins" nor "station wins" is correct, because at a busy
+// platform there are genuinely three or more things under one 32px icon: the
+// station, the front half, and a coupled rear half. Any fixed precedence makes
+// something permanently unclickable.
+//
+// So: when more than one thing is under the pointer, ask. A small pixel-art
+// chooser lists what is there and the rider picks. One thing under the
+// pointer still selects immediately -- no dialog where there is no ambiguity.
+// Pixel glyphs for the chooser rows. Inline SVG on a strict integer grid with
+// shape-rendering:crispEdges, so they stay hard-edged at any DPR instead of
+// going soft the way a scaled PNG would. aria-hidden on the wrapper: the row's
+// text already names the thing, and a second announcement would just be noise.
+const TRAIN_GLYPH =
+  '<svg viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges">' +
+  '<path fill="currentColor" d="M4 2h8v1h1v7h-1v1h1v2h-2v-1H5v1H3v-2h1v-1H3V3h1z"/>' +
+  '<path fill="#0d1117" d="M5 4h2v3H5zM9 4h2v3H9zM6 8h4v1H6z"/>' +
+  '</svg>';
+const STATION_GLYPH =
+  '<svg viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges">' +
+  '<path fill="currentColor" d="M2 11h12v2H2zM7 3h2v8H7z"/>' +
+  '<path fill="currentColor" d="M4 5h8v1H4zM4 7h8v1H4z"/>' +
+  '</svg>';
+
 function stationNear(clientX, clientY, maxPx) {
   const mr = document.getElementById('map').getBoundingClientRect();
   const p = L.point(clientX - mr.x, clientY - mr.y);
@@ -923,42 +1194,155 @@ function stationNear(clientX, clientY, maxPx) {
   return best;
 }
 
-map.on('click', (e) => {
-  if (document.querySelector('#stwrap.on')) return;
-  const pt = map.latLngToContainerPoint(e.latlng);
+// Everything selectable under a point, nearest first. Trains are matched on
+// their ICON BOX (what the finger actually hits), stations on distance to the
+// dot, so the two are comparable: both end up as "how far from the thing".
+function hitsAt(clientX, clientY, pad) {
   const mr = document.getElementById('map').getBoundingClientRect();
-  const st = stationNear(mr.x + pt.x, mr.y + pt.y, 22);
-  if (st) openBoard(st);
-});
+  const p = L.point(clientX - mr.x, clientY - mr.y);
+  const out = [];
 
-// Capture-phase listener on the map container. A Leaflet marker consumes a
-// click entirely — verified: clicking a train's <rect> fired neither the
-// marker's own handler nor map's 'click', so a station underneath it was
-// unreachable. Capture phase sees the event before Leaflet stops it.
+  for (const s of STATION_PTS) {
+    const d = p.distanceTo(map.latLngToContainerPoint(s.ll));
+    if (d <= pad) out.push({ kind: 'station', name: s.name, d });
+  }
+
+  // `markers` is a Map keyed by train id; each marker carries its train in
+  // _t (assigned at creation, refreshed every tick) so the chooser can label
+  // a row without re-reading the feed. It is a Map, not a plain object --
+  // iterate entries, not `for...in`.
+  for (const [, m] of markers) {
+    if (!m || !m._t) continue;
+    const el = m.getElement();
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width) continue;
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    // Inside the icon box counts as distance 0 so a direct hit always
+    // outranks a nearby station dot.
+    const inside = clientX >= r.left && clientX <= r.right &&
+                   clientY >= r.top && clientY <= r.bottom;
+    const d = inside ? 0 : Math.hypot(cx - clientX, cy - clientY);
+    if (d <= pad) out.push({ kind: 'train', train: m._t, marker: m, d });
+  }
+
+  out.sort((a, b) => a.d - b.d);
+  return out;
+}
+
+function selectHit(h) {
+  closeChooser();
+  if (h.kind === 'station') { openBoard(h.name); return; }
+  const m = h.marker;
+  if (m) { map.setView(m.getLatLng(), Math.max(map.getZoom(), 14)); m.openPopup(); }
+}
+
+function closeChooser() {
+  const w = document.getElementById('pickwrap');
+  if (w) w.classList.remove('on');
+}
+
+// The chooser itself. Rendered as a pixel panel to match the skin, and
+// positioned near the click without ever hanging off-screen.
 //
-// An earlier version here also bailed out when a train was within 12px,
-// meaning to protect direct train clicks. That was exactly backwards: a train
-// stopped AT a station is 0-1px from the dot (measured: the two nearest trains
-// to Henderson were both 1px away), so the guard disabled station clicks
-// precisely at the stations people tap. Standing at a platform is the normal
-// state of a train, not an edge case.
-//
-// So the station dot wins inside 10px. That costs little: a train sitting in a
-// platform is also listed in the Arrivals panel and in the board that opens,
-// and a moving train between stations is never within 10px of one.
+// innerHTML here is safe: the only interpolated values are station names and
+// destinations from our own API and a set number, and EVERY one of them goes
+// through esc(). The colour is also esc()'d before landing in a style
+// attribute. No user-supplied string reaches this template.
+function openChooser(hits, x, y) {
+  const wrap = document.getElementById('pickwrap');
+  const body = document.getElementById('pickbody');
+  if (!wrap || !body) return;
+
+  const rows = hits.slice(0, 6).map((h, i) => {
+    if (h.kind === 'station') {
+      return `<button class="pickrow" data-i="${i}">
+        <span class="pickico" aria-hidden="true">${STATION_GLYPH}</span>
+        <span class="picktxt"><b>${esc(h.name)}</b>
+        <span class="picksub">Station &middot; next departures</span></span>
+      </button>`;
+    }
+    const t = h.train;
+    // Set number is absent when AT has not assigned one (and in the
+    // interpolated no-API-key mode). A row reading "? to Manukau" looks
+    // broken, so fall back to the line name and let the destination carry
+    // the identity.
+    const sn = setNo(t.unit) || t.unit || null;
+    const title = sn ? String(sn) : (t.line || 'Train');
+    const where = t.dest ? `to ${esc(t.dest)}` : 'not in service';
+    const pos = t.consist_position
+      ? ` &middot; ${esc(t.consist_position)} half` : '';
+    return `<button class="pickrow" data-i="${i}">
+      <span class="pickico" aria-hidden="true"
+            style="color:${esc(t.colour || '#8a97a6')}">${TRAIN_GLYPH}</span>
+      <span class="picktxt"><b>${esc(title)}</b>
+      <span class="picksub">${where}${pos}</span></span>
+    </button>`;
+  }).join('');
+
+  body.innerHTML = rows;
+  // Wire by index against the array we were handed, so a feed refresh
+  // between render and click cannot select the wrong train.
+  body.querySelectorAll('.pickrow').forEach(btn => {
+    btn.onclick = () => selectHit(hits[+btn.dataset.i]);
+  });
+
+  wrap.classList.add('on');
+  // Measure AFTER showing, then clamp inside the viewport.
+  const r = wrap.getBoundingClientRect();
+  const pad = 8;
+  let left = x + 12, top = y + 12;
+  if (left + r.width > window.innerWidth - pad)
+    left = Math.max(pad, x - r.width - 12);
+  if (top + r.height > window.innerHeight - pad)
+    top = Math.max(pad, y - r.height - 12);
+  wrap.style.left = left + 'px';
+  wrap.style.top = top + 'px';
+  const first = body.querySelector('.pickrow');
+  if (first) first.focus();
+}
+
+// Single capture-phase handler for the whole map. Replaces BOTH the old
+// map.on('click') station probe and the old capture listener, so there is one
+// place that decides what a click means.
 document.getElementById('map').addEventListener('click', (ev) => {
-  if (document.querySelector('#stwrap.on')) return;
-  if (ev.target.closest('.leaflet-control, #hud, #list, #stwrap, #fbwrap, #jpwrap')) return;
-  // 20px is a finger-sized catch radius, which is WIDER than the 12px gap
-  // between the tightest city stations. That is fine and deliberate: this is
-  // nearest-wins, not first-hit, so overlapping catch areas resolve to the
-  // closest dot rather than to whichever was drawn last. A per-marker hit
-  // circle cannot do that — it fires on whatever is on top.
-  const st = stationNear(ev.clientX, ev.clientY, 20);
-  if (!st) return;
-  ev.stopPropagation();
-  openBoard(st);
+  if (document.querySelector('#stwrap.on, #fbwrap.on, #jpwrap.on')) return;
+  if (ev.target.closest(
+      '.leaflet-control, #hud, #list, #stwrap, #fbwrap, #jpwrap, #pickwrap, ' +
+      '#favbar, #alertdrawer, #alertbell, #skinbtn')) return;
+  // Inside a popup, let the popup's own buttons work.
+  if (ev.target.closest('.leaflet-popup')) return;
+
+  const hits = hitsAt(ev.clientX, ev.clientY, 20);
+  if (!hits.length) return;             // empty map: let Leaflet pan
+
+  // Exactly one candidate, or a clear winner with nothing else close: just
+  // select it. A chooser for a single train would be pure friction.
+  if (hits.length === 1) {
+    ev.stopPropagation(); ev.preventDefault();
+    selectHit(hits[0]);
+    return;
+  }
+  ev.stopPropagation(); ev.preventDefault();
+  openChooser(hits, ev.clientX, ev.clientY);
 }, true);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeChooser();
+});
+// Any click outside the chooser dismisses it.
+document.addEventListener('click', (e) => {
+  const w = document.getElementById('pickwrap');
+  if (w && w.classList.contains('on') && !e.target.closest('#pickwrap'))
+    closeChooser();
+});
+map.on('movestart zoomstart', closeChooser);
+
+// (The old station-capture listener lived here. It is gone -- its job is now
+// done by the single hitsAt()/openChooser() handler above, which resolves
+// train-vs-station overlap by asking instead of by silently preferring one.
+// Do not reintroduce a precedence rule here; see the note on that handler.)
+
 // ---------------------------------------------------------------- basemap
 // LABEL-FREE TILES. The raw OSM basemap prints every road, suburb, shop and
 // building name, and at the default zoom that text competes directly with the
@@ -1488,8 +1872,8 @@ function reportBlock(unit) {
        &middot; with set ${esc(cp.partner)}
        ${cp.source === 'at'
          ? (cp.position
-             ? `<span class="inf" title="Carriage count and both set numbers published by Auckland Transport. Which half is at the front is worked out from the two sets&rsquo; positions.">i</span>`
-             : `<span class="inf" title="Carriage count and both set numbers published by Auckland Transport.">i</span>`)
+             ? `<span class="inf" title="Front/rear is estimated from each half&rsquo;s position.">i</span>`
+             : `<span class="inf" title="Car count and set numbers from Auckland Transport.">i</span>`)
          : `<span class="inf" title="Inferred from train positions, not published by AT">?</span>`}</div>` : ''}
     ${/* The diagram above shades the offending carriage, so repeating
           "Most reports: Car 2 of 3" underneath is the same fact twice. Keep
@@ -1718,13 +2102,11 @@ async function openForm(unit) {
   // a genuine 3-car answer, not an absence of information.
   setLen(cp ? ((cp.consist|0) || 6) : null);
   const ch = document.getElementById('fbconsist');
+  // One sentence, same for both sources. Which feed told us is not a fact the
+  // rider can act on; the car count and the chance to correct it are.
   ch.textContent = !cp || !cp.partner ? ''
-    : cp.source === 'at'
-      ? `Auckland Transport lists this as a ${(cp.consist|0) || 6}-car service `
-        + `(sets ${setNo(unit)} + ${cp.partner}). Correct it if you were on `
-        + 'something else.'
-      : `Looks like a 6-car service (sets ${setNo(unit)} + ${cp.partner}). `
-        + 'We work this out from train positions, so correct it if that\u2019s wrong.';
+    : `${(cp.consist|0) || 6} cars (sets ${setNo(unit)} + ${cp.partner}) `
+      + '\u2014 change it below if not.';
   catChanged();
   document.getElementById('fbwrap').classList.add('on');
   document.getElementById('fbnote').focus();
@@ -2038,15 +2420,13 @@ async function tick() {
           : (d.stops_polled|0) + ' stations polled'}</div>`;
   }
 
-  // While warming there is nothing to describe, so don't assert anything about
-  // arrows or squares that aren't on the map yet.
-  document.getElementById('note').textContent = (d.warming || d.age_s == null)
-    ? 'Starting up — the first positions take a few seconds to arrive.'
-    : (gps
-    ? (oosN
-       ? 'Arrows are trains in service. Hollow squares are units not in service — stabled stock, empty-stock moves and depot shunts, which carry no destination.'
-       : 'Real GPS positions from Auckland Transport, with unit numbers and live delays.')
-    : 'No API key: positions interpolated along track geometry from arrival predictions.');
+  // The prose block that used to live here ("Arrows are trains in service.
+  // Hollow squares are units not in service - stabled stock, empty-stock
+  // moves and depot shunts...") has been removed along with #note. It
+  // explained the data model rather than answering a rider's question, and
+  // #note no longer exists in the markup -- writing to it threw and killed
+  // the rest of the tick. If an explanation of the glyphs is ever wanted
+  // again it belongs in the legend, next to the glyphs themselves.
 
   for (const v of lines.values()) v.count = 0;
   const seen = new Set();

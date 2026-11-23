@@ -5,9 +5,10 @@ Two faces are bundled under web/fonts/, both SIL Open Font License 1.1,
 which permits redistribution provided this licence travels with them.
 Latin subsets only (this project renders no CJK).
 
-  DotGothic16     - Copyright The DotGothic16 Project Authors,
-                    Reserved Font Name "DotGothic16".
-                    https://github.com/google/fonts/tree/main/ofl/dotgothic16
+  Pixelify Sans   - Copyright 2023 The Pixelify Sans Project Authors
+                    (https://github.com/eifetx/Pixelify-Sans),
+                    Reserved Font Name "Pixelify Sans".
+                    https://github.com/google/fonts/tree/main/ofl/pixelifysans
   Press Start 2P  - Copyright 2012 The Press Start 2P Project Authors
                     (cody@zone38.net), Reserved Font Name "Press Start 2P".
                     https://github.com/google/fonts/tree/main/ofl/pressstart2p

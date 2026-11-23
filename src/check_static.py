@@ -56,14 +56,22 @@ def main() -> int:
     # first -- the file legitimately DISCUSSES the CDN it no longer uses, and a
     # check that cannot tell code from prose gets disabled by the next person.
     css_code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    cdn = [h for h in ("fonts.googleapis.com", "fonts.gstatic.com")
+    # Third-party CDNs. The fonts were pulled off Google and Leaflet off
+    # unpkg for the same reason: a default-skin page must not hand every
+    # visitor's IP to someone else before the first paint. Assert BOTH, or the
+    # next person re-adds a convenient <script src="https://unpkg...">.
+    cdn = [h for h in ("fonts.googleapis.com", "fonts.gstatic.com",
+                       "unpkg.com", "cdn.jsdelivr.net", "cdnjs.cloudflare.com")
            if h in css_code]
     print(f"third-party font CDN in live pixel.css rules: {cdn or 'none'}")
     if cdn:
         fails.append(f"pixel.css still fetches from {cdn}")
 
-    # Same rule for the page itself.
-    html_cdn = [h for h in ("fonts.googleapis.com", "fonts.gstatic.com")
+    # Same rule for the page itself. Comments are stripped first, so the
+    # explanatory notes about the CDNs we NO LONGER use don't trip the check.
+    html_cdn = [h for h in ("fonts.googleapis.com", "fonts.gstatic.com",
+                            "unpkg.com", "cdn.jsdelivr.net",
+                            "cdnjs.cloudflare.com", "cloudflareinsights.com")
                 if h in re.sub(r"<!--.*?-->", "", s, flags=re.S)]
     print(f"third-party font CDN in index.html: {html_cdn or 'none'}")
     if html_cdn:
@@ -71,8 +79,13 @@ def main() -> int:
 
     for f in ("web/fonts/pixelfonts.css",
               "web/fonts/LICENSE-FONTS.txt",
-              "web/fonts/dotgothic16-0000_00FF.woff2",
-              "web/fonts/press-start-2p-0000_00FF.woff2"):
+              "web/fonts/pixelify-sans-0000_00FF.woff2",
+              "web/fonts/press-start-2p-0000_00FF.woff2",
+              # Leaflet is self-hosted too; if these vanish the map is a blank
+              # page, which is a worse failure than a missing font.
+              "web/vendor/leaflet.js",
+              "web/vendor/leaflet.css",
+              "web/vendor/LICENSE-LEAFLET.txt"):
         p = os.path.join(ROOT, f)
         ok = os.path.isfile(p) and os.path.getsize(p) > 0
         print(f"{'ok ' if ok else 'MISSING'} {f}")

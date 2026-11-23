@@ -137,14 +137,14 @@ def main():
             await document.fonts.ready;
             return [...document.fonts].map(f => f.family + '|' + f.status);
         }""")
-        check("DotGothic16 loaded",
-              any("DotGothic16" in f and "loaded" in f for f in fonts), str(fonts))
+        check("Pixelify Sans loaded",
+              any("Pixelify Sans" in f and "loaded" in f for f in fonts), str(fonts))
         check("Press Start 2P loaded",
               any("Press Start 2P" in f and "loaded" in f for f in fonts))
         # A fallback to monospace is invisible unless measured: compare the
         # painted family against the first family in the stack.
         fam = pg.evaluate("""() => getComputedStyle(document.body).fontFamily""")
-        check("body paints DotGothic16", "DotGothic16" in fam, fam)
+        check("body paints Pixelify Sans", "Pixelify Sans" in fam, fam)
         reqs = pg.evaluate("""() => performance.getEntriesByType('resource')
                                      .map(r => r.name).filter(n => /font|woff/.test(n))""")
         check("fonts served from our own origin",
