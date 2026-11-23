@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import archive   # noqa: E402
+import accesslog # noqa: E402
 import live      # noqa: E402
 import alerts    # noqa: E402
 import board
@@ -965,6 +966,22 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 # likewise wants a real answer, not a hop.
 CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "").strip()
 _NO_REDIRECT_PREFIXES = ("/api/",)
+
+
+# --------------------------------------------------------------- access log
+# Combined-format request log for self-hosted analytics (GoAccess reads it).
+# Disabled unless ACCESS_LOG names a path -- off on Fly, off in development.
+# Placed BELOW the canonical redirect so a 301 is recorded as a 301, and
+# registered after it so this middleware runs first and sees the real status.
+accesslog.init()
+
+
+@app.middleware("http")
+async def _access_log(request: Request, call_next):
+    response = await call_next(request)
+    accesslog.record(request, response.status_code,
+                     response.headers.get("content-length", "-"))
+    return response
 
 
 @app.middleware("http")

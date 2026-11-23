@@ -5,10 +5,14 @@ WHY THIS EXISTS
 The pixel skin is becoming the DEFAULT view, which changes the privacy
 calculus completely. An @import from fonts.googleapis.com means every single
 visitor's IP address and User-Agent go to Google before a pixel is painted.
-This site's whole stance is no identity, no IPs retained, no analytics by
-design -- shipping a third-party font CDN as the default would quietly
-contradict that on the very first paint. Self-hosting also removes a
-render-blocking third-party request from the critical path.
+This site's stance is no third-party tracking, no client-side analytics JS,
+and no public attribution of who reported what -- shipping a third-party
+font CDN as the default would quietly hand every visitor to Google on the
+very first paint. (The origin does keep a rotating server-side access log
+for its own traffic analytics; that is first-party, stays on the origin, and
+is never shared. It is not a reason to hand the same data to a CDN.)
+Self-hosting also removes a render-blocking third-party request from the
+critical path.
 
 LICENCE -- the reason this is allowed where the tileset was not
 DotGothic16 and Press Start 2P are both SIL Open Font License 1.1, which
@@ -104,8 +108,8 @@ def main() -> int:
         "   redistribution provided the licence travels with them: see\n"
         "   web/fonts/OFL.txt. Self-hosted rather than @import'ed from Google\n"
         "   because the pixel skin is the DEFAULT view, and an @import would\n"
-        "   send every visitor's IP to a third party on first paint -- which\n"
-        "   would contradict this site's no-identity, no-analytics stance.\n"
+        "   send every visitor's IP to a third party on first paint, which\n"
+        "   this site does not do.\n"
         "   Latin subsets only: the project renders no CJK. */\n\n"
     )
     dest = os.path.join(OUT_DIR, "pixelfonts.css")

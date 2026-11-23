@@ -49,6 +49,16 @@ services:
       # Keep the latch beside the DB, on the volume: it is state, not image.
       ORDER_LATCH: /data/order_latch.json
       TRAINS_CACHE: /data/last_trains.json
+      # First-party traffic log for the analytics container below. Combined
+      # format so GoAccess parses it with no custom format string. On the
+      # bind-mount so it survives a container rebuild, and rotated by the app
+      # (20MB x 5) because this is flash with finite write endurance.
+      ACCESS_LOG: /data/access.log
+      # The client address is taken from CF-Connecting-IP. That header is only
+      # trustworthy because the tunnel is the single inbound path to this
+      # origin -- nothing else can reach the port to forge it. Set to 0 if
+      # this app is ever exposed directly.
+      ACCESS_LOG_TRUST_PROXY: "1"
     volumes:
       - ./data:/data
     ports:
@@ -72,3 +82,60 @@ services:
         # UFS is flash with finite writes; don't let logs grow unbounded.
         max-size: "10m"
         max-file: "3"
+
+  # ----------------------------------------------------------------- analytics
+  # GoAccess in real-time HTML mode: it tails the access log the app writes and
+  # serves a self-updating dashboard over a websocket.
+  #
+  # NOT PUBLIC, AND NOT PUBLISHABLE BY ACCIDENT. The port is bound to this
+  # host's DMZ address only -- NOT 0.0.0.0 -- so the dashboard is reachable
+  # exclusively from the one admin host the gateway ACL permits into this VLAN
+  # (rule 0). The Cloudflare tunnel has no ingress rule for it, so it cannot
+  # appear on the public hostname even by misconfiguration: there is nothing
+  # for the tunnel to route.
+  #
+  # Nothing here is wired into the page: there is no analytics JavaScript, no
+  # third-party beacon, and no change to what a visitor's browser contacts.
+  # The data is the server's own log of requests it already served.
+  goaccess:
+    image: allinurl/goaccess:1.9.3
+    container_name: akl-goaccess
+    restart: unless-stopped
+    depends_on:
+      - akl-train-map
+    # Read-only mount: the dashboard must never be able to alter or truncate
+    # the log it reports on.
+    volumes:
+      - ./data:/srv/data:ro
+      - ./data/goaccess:/srv/report
+    ports:
+      # ${DMZ_BIND} comes from .env (the host's own VLAN address). Deliberately
+      # not hardcoded: the address is site detail and this file is public.
+      # Defaults to loopback, so a missing .env entry fails CLOSED -- reachable
+      # only on the phone itself, never accidentally exposed to the subnet.
+      - "${DMZ_BIND:-127.0.0.1}:7890:7890"
+    command: >
+      --log-file=/srv/data/access.log
+      --log-format=COMBINED
+      --real-time-html
+      --port=7890
+      --ws-url=${DMZ_BIND:-127.0.0.1}:7890
+      --output=/srv/report/index.html
+      --db-path=/srv/report
+      --persist
+      --restore
+      --tz=Pacific/Auckland
+      --agent-list
+      --ignore-crawlers
+      --no-progress
+    deploy:
+      resources:
+        limits:
+          # Parsing is cheap but must never compete with serving traffic.
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
