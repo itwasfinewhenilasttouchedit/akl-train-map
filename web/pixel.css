@@ -436,16 +436,21 @@ body.pixel *::-webkit-scrollbar-thumb:hover { background: var(--e-ao-dk); }
   box-shadow: 3px 3px 0 0 #000;
 }
 #skinbtn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 0 #000; }
-/* The ON label (PIXEL ON) is wider than the OFF label (PIXEL), and the
-   fixed min-width clipped it — caught in a screenshot, where the kanji
-   overlapped the text. Let the button size to its content and never wrap. */
+/* Square icon button. It was "PIXEL ON" / "PIXEL OFF", a ~96px pill that sat
+   on the same bottom row as Home/Away/Plan and crowded them on a phone. The
+   label is now a single P and the button is a fixed 44x44 square — still the
+   2.5.5 minimum target, at under half the width.
+   Fixed dimensions (not min-*) because the label no longer changes length, so
+   there is nothing left for the button to size to. */
 #skinbtn {
-  width: auto;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 18px;
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
   line-height: 1;
 }
 /* Under the skin the button becomes the train itself: white body, ao text,
@@ -457,6 +462,14 @@ body.pixel #skinbtn {
   box-shadow: inset 0 -3px 0 var(--e-copper), 3px 3px 0 0 rgba(21,32,46,.3);
   font-weight: bold;
 }
+/* With the word gone, the ONLY visible signal of on-vs-off is how the button
+   looks, so the unpressed state must be visibly different rather than merely
+   differently themed: off reads as a recessed, dimmer key. */
+#skinbtn[aria-pressed="false"] {
+  opacity: .72;
+  box-shadow: inset 2px 2px 0 0 rgba(0,0,0,.45);
+}
+#skinbtn:focus-visible { outline: 3px solid var(--e-copper); outline-offset: 2px; }
 
 /* --- falling blossom --------------------------------------------------
    Pale pink vanishes against white, so on the light skin each petal gets a
@@ -547,7 +560,8 @@ body.pixel #skinbtn {
      difference between one line and two. */
   body.pixel, body.pixel * { letter-spacing: 0; }
 
-  #skinbtn { font-size: 11px; right: 6px; bottom: 6px; padding: 0 8px; }
+  #skinbtn { font-size: 16px; right: 6px; bottom: 6px; padding: 0;
+             width: 44px; height: 44px; }
 }
 
 /* Print: a light skin mostly survives paper; the decoration does not. */

@@ -90,8 +90,12 @@ def main():
               stored is None, f"got {stored!r}")
         check("toggle button reports pressed",
               pg.get_attribute("#skinbtn", "aria-pressed") == "true")
-        check("toggle label names the state",
-              "ON" in (pg.inner_text("#skinbtn") or ""),
+        # The visible label is a bare "P" in BOTH states -- the button is a
+        # 44px square icon now, so the state is carried by aria-pressed and by
+        # the pressed styling, not by the words "PIXEL ON"/"PIXEL OFF". The
+        # accessible name (checked next) is what must still name the action.
+        check("toggle label is the single-letter icon",
+              (pg.inner_text("#skinbtn") or "").strip() == "P",
               repr(pg.inner_text("#skinbtn")))
         check("aria-label offers the action (turn OFF)",
               "off" in (pg.get_attribute("#skinbtn", "aria-label") or "").lower())

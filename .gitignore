@@ -90,6 +90,11 @@ src/probe*.py
 src/shot*.py
 !src/shot_px.py
 !src/shot_ui4.py
+# shot_bottom.py measures the bottom control row (square skin toggle, credit
+# chip collapsed on load and expanding on activation, no overlaps). It is a
+# gate, not a probe -- it caught a hover/focus-vs-click race that only showed
+# up under touch emulation.
+!src/shot_bottom.py
 src/seed_feedback.py
 
 # Licensed third-party art — "Train Station Tileset" by Pixels On Ultra.

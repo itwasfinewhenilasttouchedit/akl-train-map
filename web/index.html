@@ -16,7 +16,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=99f7bcace5">
+<link rel="stylesheet" href="/static/pixel.css?v=d1857ea44c">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -411,29 +411,63 @@
      offset per button and an earlier guess overlapped two of them by 18px. */
   /* #skinbtn is position:fixed bottom-right (pixel.css) and floats ABOVE this
      row, so the bar stops short of it rather than running underneath — a
-     screenshot caught the Plan pill hidden behind the PIXEL toggle. ~86px
-     covers the wider "PIXEL ON" label plus its 8px inset. */
-  /* MAP CREDIT: moved up and out of the controls' way.
-     Leaflet pins .leaflet-control-attribution to the bottom-right of the map
-     at y=885 in a 900px viewport. Measured overlap: 3px into #favbar (and its
-     favaway/plan buttons) and 7-9px into #skinbtn -- enough to eat the edge of
-     a 52px tap target and make the bottom row look broken.
-     Fixed by lifting the credit above the control row and letting pointer
-     events through the empty part of the strip, so the credit can never
-     swallow a tap meant for a button. The links inside stay clickable. */
-  .leaflet-control-attribution { pointer-events:none;
-            margin:0 !important; padding:1px 8px !important;
-            font-size:10px !important; line-height:14px !important;
-            background:rgba(13,17,23,.78) !important;
+     screenshot caught the Plan pill hidden behind the PIXEL toggle. The
+     toggle is now a 44px square P, so 60px covers it plus its 8px inset;
+     if that button ever grows again, this number must grow with it. */
+  /* MAP CREDIT: collapsed to an info chip.
+     The full-width strip ran the whole bottom edge and, on a phone, read as a
+     grey banner across the map -- the thing the page exists to show. It is
+     NOT deleted: Esri's terms and Auckland Transport's licence both require
+     the credit to remain available, so it collapses to a 20px circled-i that
+     expands to the full text on tap, hover or keyboard focus.
+     Collapsed it is font-size:0 (the text is still in the DOM and still read
+     by a screen reader, which ignores the visual size); the glyph is drawn by
+     ::before so hiding the text cannot hide the control itself. */
+  .leaflet-control-attribution { position:relative; cursor:pointer;
+            pointer-events:auto;
+            margin:0 !important; padding:0 !important;
+            width:20px; height:20px; overflow:hidden;
+            font-size:0 !important;
+            background:rgba(13,17,23,.60) !important;
             color:var(--muted) !important;
+            border-radius:4px 0 0 0 !important; }
+  .leaflet-control-attribution::before { content:'\2139';
+            display:block; width:20px; line-height:20px; text-align:center;
+            font-size:12px; color:var(--muted); }
+  .leaflet-control-attribution.open { width:auto; height:auto;
+            padding:1px 8px !important;
+            font-size:10px !important; line-height:14px !important;
+            background:rgba(13,17,23,.85) !important;
             border-radius:6px 0 0 0 !important; }
-  .leaflet-control-attribution a { pointer-events:auto;
-            color:var(--muted) !important; }
+  .leaflet-control-attribution.open::before { display:none; }
+  /* Hover expansion for mouse users, in CSS so it cannot race the click
+     handler. Gated behind hover:hover so a touch device never gets a sticky
+     hover state it has no way to leave. */
+  @media (hover:hover) and (pointer:fine) {
+    .leaflet-control-attribution:hover { width:auto; height:auto;
+              padding:1px 8px !important;
+              font-size:10px !important; line-height:14px !important;
+              background:rgba(13,17,23,.85) !important;
+              border-radius:6px 0 0 0 !important; }
+    .leaflet-control-attribution:hover::before { display:none; }
+  }
+  /* Keyboard focus expands it too. :focus-visible, not :focus, so a mouse
+     click does not trigger it and re-create the race described above. */
+  .leaflet-control-attribution:focus-visible { width:auto; height:auto;
+            padding:1px 8px !important;
+            font-size:10px !important; line-height:14px !important;
+            background:rgba(13,17,23,.85) !important;
+            border-radius:6px 0 0 0 !important;
+            outline:2px solid var(--muted); }
+  .leaflet-control-attribution:focus-visible::before { display:none; }
+  .leaflet-control-attribution a { color:var(--muted) !important; }
   /* The bottom-right control corner holds the credit; lift the whole corner
      clear of the 52px button row plus its 12px inset. */
   .leaflet-bottom.leaflet-right { bottom:74px; }
+  /* Right inset clears #skinbtn, which is now a 44px square P button plus its
+     8px inset -- was 94px when the toggle read "PIXEL ON". */
   #favbar { position:absolute; z-index:650; bottom:12px;
-            left:8px; right:94px; gap:8px; justify-content:center; }
+            left:8px; right:60px; gap:8px; justify-content:center; }
   .favbtn, #planbtn { background:var(--panel);
               color:var(--fg); border:1px solid var(--edge); border-radius:999px;
               min-height:52px; padding:0 12px; font:inherit; font-size:15px;
@@ -445,8 +479,8 @@
      word, so it must not take a share of the row the station names need. */
   #planbtn { flex:0 0 auto; }
   /* The two station pills split what is left. Measured at 390px: the row has
-     ~288px of usable width after the PIXEL toggle and gaps, so each pill gets
-     ~100px — enough for "Home Waitemata" to ellipsis at the STATION rather
+     ~322px of usable width after the P toggle and gaps, so each pill gets
+     ~118px — enough for "Home Waitemata" to ellipsis at the STATION rather
      than swallowing the label. The label must always survive; it is the part
      that says which button this is. */
   .favbtn { flex:1 1 0; min-width:0; }
@@ -685,7 +719,7 @@
      toggle's script fails to run, the markup must describe what the page
      actually looks like rather than contradict it (4.1.2 Name, Role, Value). -->
 <button id="skinbtn" type="button" aria-pressed="true"
-        aria-label="Turn off pixel art skin">▧ PIXEL ON</button>
+        aria-label="Turn off pixel art skin" title="Pixel art skin">P</button>
 <!-- Falling blossom. Purely decorative, hidden from assistive tech, and
      CSS-gated behind prefers-reduced-motion. -->
 <div id="sakura" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
@@ -912,7 +946,9 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g,
 // library's own editorial content, not ours and not a data credit, so it is
 // replaced with a plain library credit rather than hidden with CSS — hiding it
 // would leave the element in the DOM for screen readers to announce.
-// The Esri and Auckland Transport credits are separate (TILE_ATTR) and stay.
+// The Esri and Auckland Transport credits are separate (TILE_ATTR) and stay —
+// collapsed into an expandable info chip, but never removed: both licences
+// require the credit to be available.
 const map = L.map('map', { zoomControl:false, preferCanvas:true,
                            attributionControl:false })
   .setView([-36.95, 174.83], 11);
@@ -1407,8 +1443,43 @@ let tileLayer = L.tileLayer(
   { attribution: TILE_ATTR, maxZoom: 16 }).addTo(map);
 
 // Our own attribution control, with a plain-text library credit as the prefix.
-L.control.attribution({ prefix: '<a href="https://leafletjs.com/">Leaflet</a>' })
- .addTo(map);
+const attrCtl = L.control.attribution(
+  { prefix: '<a href="https://leafletjs.com/">Leaflet</a>' }).addTo(map);
+
+// The credit renders as a collapsed info chip (see .leaflet-control-attribution
+// in the stylesheet) and expands on demand. Attribution is a licence condition
+// for both Esri and AT, so it may be made small and deferred -- never removed.
+(function () {
+  const el = attrCtl.getContainer();
+  if (!el) return;
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+  el.setAttribute('aria-label', 'Map credits');
+  el.setAttribute('aria-expanded', 'false');
+  function setOpen(on) {
+    el.classList.toggle('open', on);
+    el.setAttribute('aria-expanded', on ? 'true' : 'false');
+  }
+  el.addEventListener('click', (e) => {
+    // A link inside the expanded credit must still navigate.
+    if (e.target.closest('a')) return;
+    e.stopPropagation();
+    setOpen(!el.classList.contains('open'));
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault(); setOpen(!el.classList.contains('open'));
+    } else if (e.key === 'Escape') { setOpen(false); el.blur(); }
+  });
+  // Hover AND keyboard-focus expansion are done in CSS (:hover gated to real
+  // pointers, plus :focus-visible), NOT here.
+  // Doing either in JS fought this click handler: the pointer arriving (or
+  // the click focusing the element) called setOpen(true), and the click that
+  // followed toggled it straight back shut, so it never expanded. On desktop
+  // :hover masked the bug; on touch it was plainly broken. Both were caught
+  // by the geometry harness, which is why hover/focus styling stays in CSS
+  // where it cannot race a class toggle.
+})();
 
 // Swap the raster when the skin changes. Leaflet keeps the pane, so this does
 // not disturb zoom, centre, markers or any open popup.
@@ -3107,10 +3178,16 @@ document.addEventListener('click', (e) => {
     // what a screen reader user needs from a toggle. The visible text names
     // the state, since the button is also the only indicator of which theme
     // is active.
-    btn.textContent = on ? '▧ PIXEL ON' : '▧ PIXEL OFF';
+    // A single "P" in both states: the button is a square icon now, so the
+    // STATE is carried by its pressed styling (and aria-pressed), not by a
+    // word. The accessible name still states the action, which is what a
+    // screen-reader user needs from a toggle.
+    btn.textContent = 'P';
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     btn.setAttribute('aria-label',
       on ? 'Turn off pixel art skin' : 'Turn on pixel art skin');
+    btn.setAttribute('title',
+      on ? 'Pixel art skin: on' : 'Pixel art skin: off');
   }
 
   function apply(on, persist) {
