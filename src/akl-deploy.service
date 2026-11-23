@@ -1,0 +1,33 @@
+# Pull-based deploy timer for the self-hosted instance.
+#
+# Install (on the host, as the service user):
+#   mkdir -p ~/.config/systemd/user
+#   cp src/akl-deploy.service src/akl-deploy.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now akl-deploy.timer
+#   sudo loginctl enable-linger "$USER"   # survive logout / run at boot
+#
+# A user unit, not system: the deploy only needs the docker group and the
+# repo in $HOME. Nothing here requires root, so nothing here gets root.
+
+[Unit]
+Description=Pull origin/main and redeploy the Auckland train map if it changed
+Documentation=https://github.com/itwasfinewhenilasttouchedit/akl-train-map
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# %h is the user's home: no hardcoded username, so this unit is portable.
+WorkingDirectory=%h/srv/akl-train-map
+ExecStart=/usr/bin/env bash %h/srv/akl-train-map/src/deploy_pull.sh
+# A cold arm64 build with the GTFS reduction step measured 2m09s; the smoke
+# test and health wait add up to ~2m more. 15 minutes is generous headroom
+# for a thermally-clamped phone without hanging a stuck build forever.
+TimeoutStartSec=900
+# Deploy failure is non-fatal and self-healing: the script rolls back and the
+# timer simply tries again after the next push. Don't spam-restart it.
+Restart=no
+# The script is the only thing that should ever touch the live container, so
+# keep its environment minimal and predictable.
+Environment=LANG=C.UTF-8

@@ -1,0 +1,25 @@
+# Timer for akl-deploy.service -- see that file for install instructions.
+
+[Unit]
+Description=Check origin/main for the Auckland train map every 5 minutes
+Documentation=https://github.com/itwasfinewhenilasttouchedit/akl-train-map
+
+[Timer]
+# 5 minutes is the whole latency budget between a green CI run and the site
+# updating. A no-op tick is one HTTPS fetch against a public repo (no auth,
+# no AT quota, a few KB), so the cost of polling frequently is negligible.
+OnUnitActiveSec=5min
+# Deploy shortly after boot, not instantly: the phone has no RTC, so the clock
+# is wrong until systemd-timesyncd corrects it, and a wrong clock breaks TLS
+# to GitHub. 3 minutes clears timesync comfortably.
+OnBootSec=3min
+# Keep ticks off exact minute boundaries so a deploy never lines up with every
+# other cron-ish job on the host.
+RandomizedDelaySec=45
+# If the phone was asleep or off-network through a scheduled tick, run once on
+# return rather than skipping the missed window entirely.
+Persistent=true
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

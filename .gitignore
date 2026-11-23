@@ -69,8 +69,14 @@ archive/
 
 # Compose files for private hosts: internal addresses, VLAN layout and the
 # access assumptions of a specific machine. The app does not need them.
+# Per-host compose overrides may carry site addressing; ignore by default and
+# allow-list the ones deliberately sanitised for publication.
 compose.*.yaml
 !compose.yaml
+# Tracked on purpose: the pull deployer resets the working tree to origin/main,
+# so the self-hosted compose file must be reproducible from the repo. It holds
+# no secrets -- the AT key lives in .env (ignored below).
+!compose.selfhosted.yaml
 
 # ---- throwaway probe and screenshot scripts ----
 # Investigation tooling; keep the repo to the actual application.

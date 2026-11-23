@@ -1,0 +1,74 @@
+# Auckland train map, self-hosted deployment (isolated DMZ VLAN).
+#
+# Differs from the Fly deployment in four ways that matter:
+#
+# 1. NO CR_SECRET_URL. The gateway ACL denies this VLAN -> all internal VLANs,
+#    so the internal secret service is unreachable from here by design. The AT
+#    key is injected from .env, which is written once at provisioning time and
+#    is chmod 600, never committed. See src/deploy_pull.sh.
+# 2. State lives on a host bind-mount, not a Fly volume. The order latch must
+#    survive a restart or every stationary 6-car loses its front/rear order
+#    until it next pulls away.
+# 3. Resource caps. This is a phone: the SoC thermally clamps to 1.04 GHz at
+#    85C and thermal-guard.service enforces that in userspace. Capping the
+#    container keeps a runaway poll loop from cooking the SoC or starving
+#    sshd -- which is the only way back in short of a USB cable.
+# 4. NO CANONICAL_HOST. This host is the canonical origin, so it must serve,
+#    not redirect. Setting it here would make the site redirect to itself.
+#
+# This file IS tracked in git. The pull-based deployer resets the working tree
+# to origin/main, so an untracked compose file would be the one part of prod
+# nobody could reproduce. It deliberately holds no secrets -- everything
+# sensitive is in .env, which git ignores.
+
+services:
+  akl-train-map:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: akl-train-map:local
+    container_name: akl-train-map
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8080
+      # Service Info (vehicles/byTripId) ONLY accepts AT's public Journey
+      # Planner key -- a registered dev-portal key 401s with "not subscribed
+      # to Service Info", which silently drops consist detection back to
+      # geometric inference (~62% recall). This key is published in AT's own
+      # front-end JS bundle, so it is not a secret and is pinned here rather
+      # than in .env. Pinned in `environment` deliberately: it overrides
+      # env_file, so a stale .env copy cannot reintroduce the 401.
+      AT_SERVICEINFO_KEY: "693150c317fc42c5a2f871aee3f586af"
+      FEEDBACK_DB: /data/feedback.db
+      # Persistent observation archive. Zero extra AT quota (it subscribes to
+      # the poll the server already makes). Measured 62.5 B/row => ~15.5 MB/day,
+      # ~5.7 GB/year against 209 GB free. On the bind-mount because it is the
+      # one thing here that must outlive the container. ARCHIVE_DB=off kills it.
+      ARCHIVE_DB: /data/archive.db
+      # Keep the latch beside the DB, on the volume: it is state, not image.
+      ORDER_LATCH: /data/order_latch.json
+      TRAINS_CACHE: /data/last_trains.json
+    volumes:
+      - ./data:/data
+    ports:
+      # Bound to all interfaces so the tunnel (host network) can reach it.
+      # Safe here: the VLAN is isolated and the gateway denies inbound from WAN.
+      - "8731:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1500M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        # UFS is flash with finite writes; don't let logs grow unbounded.
+        max-size: "10m"
+        max-file: "3"
