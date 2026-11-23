@@ -17,18 +17,36 @@ Run:  cd src && ../.venv/bin/python test_canonical.py
 import importlib
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+# Every case hits /api/health, which calls feedback.stats() -> real SQL against
+# the feedback DB. Point FEEDBACK_DB at a throwaway file and initialise the
+# schema, or the tests inherit whatever DB happens to exist on the machine.
+#
+# This bit me: the suite passed locally (output/feedback.db was already there
+# from development) and failed in CI with "no such table: reports" on a clean
+# checkout. A test that depends on ambient local state is not a gate. The temp
+# dir must be created BEFORE the first server import, since FEEDBACK_DB is read
+# at import time.
+_TMP = tempfile.mkdtemp(prefix="test_canonical_")
+os.environ["FEEDBACK_DB"] = os.path.join(_TMP, "feedback.db")
+os.environ["ARCHIVE_DB"] = "off"
+os.environ["ORDER_LATCH"] = os.path.join(_TMP, "order_latch.json")
+os.environ["TRAINS_CACHE"] = os.path.join(_TMP, "last_trains.json")
+
+import feedback  # noqa: E402
+
+feedback.init_db()
+
 
 def client_with(canonical: str | None):
     """Import a fresh server module with CANONICAL_HOST set (or absent)."""
     saved = os.environ.get("CANONICAL_HOST")
-    # Keep the suite off the real databases and off AT's API.
-    os.environ["ARCHIVE_DB"] = "off"
     if canonical is None:
         os.environ.pop("CANONICAL_HOST", None)
     else:
