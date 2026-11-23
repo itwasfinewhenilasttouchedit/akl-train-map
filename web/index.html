@@ -16,7 +16,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=d1857ea44c">
+<link rel="stylesheet" href="/static/pixel.css?v=08d24b441a">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -131,20 +131,18 @@
   .err { color:#f85149; font-size:11.5px; margin-top:8px; }
   .note { color:var(--muted); font-size:12px; margin-top:9px;
           border-top:1px solid var(--line); padding-top:8px; }
-  #list { bottom:12px; left:12px; width:252px; max-height:40vh; overflow:auto;
-          padding:8px 4px 8px 10px; font-size:12px; }
-  #list .row { display:flex; gap:6px; align-items:baseline; padding:3px 6px 3px 0;
-               cursor:pointer; border-radius:6px; }
-  #list .row:hover { background:#1f2733; }
-  #list .eta { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
-  #list .late { color:#f0883e; }
-  #list .unit { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  /* The network-wide arrivals panel (#list) was REMOVED on 2026-11-24. It was
+     already dead on phones -- its open/close control had gone, so the media
+     query left it permanently display:none -- but desktop still painted a
+     270x380 panel of 30 rows that ran under the bottom button row.
+     It was superseded by the Home/Away favourite stations: a list of every
+     train on the network sorted by ETA answers "what is moving right now",
+     and the commuter's question is "when is my train, from my station".
+     Do not reintroduce it without that control. */
   .pop .unit { display:inline-block; background:#232c38; border:1px solid var(--line);
                border-radius:5px; padding:0 5px; font-size:11px; letter-spacing:.3px; }
   .train { transition: transform 1.6s linear; }
   /* Out-of-service stock: muted, hollow, and visually subordinate to services */
-  #list .row.oos { opacity:.62; }
-  #list .row.oos .where { color:var(--muted); font-size:11px; margin-left:auto; }
   .pop .oostag { display:inline-block; background:#2a313c; color:var(--muted);
                  border-radius:5px; padding:0 5px; font-size:12px; }
   /* feedback */
@@ -209,8 +207,6 @@
   .leaflet-popup-content { margin:10px 12px; }
   .pop b { font-size:13.5px; } .pop small { color:var(--muted); }
   .leaflet-container { background:var(--bg); }
-  /* Bottom-sheet toggle for the arrivals list. Declared before the phone media
-     query so that query can turn it on — a later base rule would win instead. */
   /* ---- journey planner panel (same modal pattern as the report form) ---- */
   #stwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
             display:none; align-items:center; justify-content:center; }
@@ -502,9 +498,6 @@
     .leaflet-control-zoom { display:none; }
     #hudbody { max-height:52vh; }
     #stat b { font-size:17px; }
-    #list { left:8px; right:8px; bottom:72px; width:auto;
-           max-height:calc(100vh - 190px); display:none; }
-    #list.open { display:block; }
     /* Both pills share the bottom bar. Widths vary with the label, so they are
        anchored to opposite sides of centre with a gap rather than nudged by a
        guessed offset — an earlier guess overlapped them by 18px. */
@@ -825,7 +818,6 @@
   <button id="planbtn" type="button"><span aria-hidden="true">&#128337;</span> Plan</button>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
-<div id="list" class="panel"></div>
 
 <!-- Journey planner. Deliberately a separate panel from the map: planning is a
      different intent from browsing live positions, and cramming it into the HUD
@@ -987,7 +979,6 @@ bar.onkeydown = e => {
 // Note the origin DOES keep a first-party access log including client IPs
 // (GoAccess, internal dashboard only) — do not restore the old "no IPs, no
 // analytics" claim here, it stopped being true when that log was added.
-const listEl = document.getElementById('list');
 const FAVKEY = 'favStations';
 
 function favs() {
@@ -1358,7 +1349,7 @@ function openChooser(hits, x, y) {
 document.getElementById('map').addEventListener('click', (ev) => {
   if (document.querySelector('#stwrap.on, #fbwrap.on, #jpwrap.on')) return;
   if (ev.target.closest(
-      '.leaflet-control, #hud, #list, #stwrap, #fbwrap, #jpwrap, #pickwrap, ' +
+      '.leaflet-control, #hud, #stwrap, #fbwrap, #jpwrap, #pickwrap, ' +
       '#favbar, #alertdrawer, #alertbell, #skinbtn')) return;
   // Inside a popup, let the popup's own buttons work.
   if (ev.target.closest('.leaflet-popup')) return;
@@ -1678,7 +1669,7 @@ function renderLegend() {
       SHOW_OOS = i.checked;
       localStorage.setItem('showOos', SHOW_OOS ? '1' : '0');
     }
-    applyFilter(); renderList();
+    applyFilter();
   });
 }
 
@@ -1774,7 +1765,6 @@ function popupFor(t) {
 }
 
 function refreshFlags() {
-  renderList();
   for (const m of markers.values()) {
     const t = m._t;
     if (!t) continue;
@@ -2557,47 +2547,12 @@ async function tick() {
 
   renderLegend(); applyFilter();
 
-  // Services first by ETA; out-of-service units after them, since they have no
-  // ETA to sort by and shouldn't dilute the arrivals board.
   LAST_TRAINS = d.trains || [];
-  renderList();
 }
 
-// Split out of tick() so the feedback summary can re-render the arrivals list
-// the moment it lands. Same race as the markers: the list is built from the
-// trains feed, which normally arrives first, so warning glyphs would otherwise
-// be missing from the list for the first 10 seconds.
-function renderList() {
-  // Trailing halves are filtered out for the same reason as on the map: one
-  // physical train, one row. The row for the set carrying the trip names both.
-  // Same source of truth as the map, or the list and the markers disagree.
-  // Before the first poll `lines` is empty, and `?.on !== false` would read
-  // undefined as "show" — defaulting to the opposite of what we promised.
-  const oosOn = lines.has('OOS') ? lines.get('OOS').on !== false : SHOW_OOS;
-  const sorted = LAST_TRAINS.filter(t => !t.trailing_half)
-    .filter(t => oosOn || t.in_service !== false).slice().sort((a,b) =>
-    (a.in_service===false) - (b.in_service===false) ||
-    (a.eta_s ?? 1e9) - (b.eta_s ?? 1e9) ||
-    String(a.unit||'').localeCompare(String(b.unit||'')));
-  document.getElementById('list').innerHTML = sorted.map(t =>
-    t.in_service === false
-    ? `<div class="row oos" data-id="${esc(t.id)}">
-         <span class="swatch" style="background:${esc(t.colour)};box-shadow:0 0 0 1.5px rgba(255,255,255,.18)"></span>
-         <span class="unit">${esc(t.unit ?? 'unit')}</span>${warnMini(t.unit)}
-         <span class="where">${t.moving ? 'moving' : 'stabled'}${
-            t.near ? ' · '+esc(t.near) : ''}</span>
-       </div>`
-    : `<div class="row" data-id="${esc(t.id)}">
-       <span class="swatch" style="background:${esc(t.colour)}"></span>
-       <span>${esc(t.to ?? t.line)}</span>
-       ${t.unit ? `<span class="unit">${esc(t.unit)}</span>` : ''}${warnMini(t.unit)}
-       <span class="eta ${t.delay_s>120?'late':''}">${t.eta_s==null?'—':mmss(t.eta_s)}</span>
-     </div>`).join('');
-  document.getElementById('list').querySelectorAll('.row').forEach(r => r.onclick = () => {
-    const m = markers.get(r.dataset.id);
-    if (m) { map.setView(m.getLatLng(), 14); m.openPopup(); }
-  });
-}
+// renderList() lived here. Removed with #list on 2026-11-24 -- see the note in
+// the stylesheet. LAST_TRAINS is still maintained above: the favourites, the
+// chooser and the popups all read it.
 // Normal cadence is 10s, but a cold start has no data to show and the server
 // is usually ready in ~3s — waiting a full 10s leaves a visitor looking at a
 // "loading" panel long after it's stale. Poll every 1.5s until data arrives,

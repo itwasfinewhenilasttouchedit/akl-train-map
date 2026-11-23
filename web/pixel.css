@@ -130,7 +130,6 @@ body.pixel::after { content: none; }
    Ivory field, ao border, a white-then-copper inset reading as the livery
    pinstripe. Hard offset shadow, never blur, so it stays crisp at any zoom. */
 body.pixel #hud,
-body.pixel #list,
 body.pixel #fbwrap,
 body.pixel #jpwrap,
 body.pixel #stwrap,
@@ -401,7 +400,7 @@ body.pixel input::placeholder, body.pixel textarea::placeholder {
   color: #7a8794;
 }
 
-body.pixel #list .row, body.pixel #stres .row, body.pixel #jpres .row {
+body.pixel #stres .row, body.pixel #jpres .row {
   border-bottom: 1px dashed var(--line);
   font-family: 'Pixelify Sans', monospace;
 }
@@ -688,7 +687,6 @@ body.pixel .vote.on {
 
 /* hover states that assumed a dark ground */
 body.pixel #hudbar:hover { background: var(--e-ao-dk) !important; }
-body.pixel #list .row:hover,
 body.pixel #legend label:hover { background: var(--e-sora-l) !important; }
 
 /* toast sits above the modals; it must not stay night-coloured */
