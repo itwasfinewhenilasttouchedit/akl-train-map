@@ -157,19 +157,34 @@ jobs:
 
       - name: Verify the deploy actually landed
         # `fly deploy` exiting 0 means the machine started, not that the new
-        # code is being served. Compare the asset stamp in the live HTML
-        # against the one in this commit; a mismatch means we are looking at a
-        # cached or rolled-back build.
+        # code is being served.
+        #
+        # Fly no longer serves the app -- it 301s to the canonical self-hosted
+        # host (see CANONICAL_HOST in fly.toml). So the old asset-stamp scrape
+        # of the live HTML cannot work: there is no HTML, and grep returned an
+        # empty string that failed the gate on a deploy that had in fact
+        # succeeded. Assert the two things that must now be true instead.
         run: |
           sleep 15
-          curl -sS -o /dev/null -w 'warm: %{http_code}\n' https://akl-trains.fly.dev/
-          sleep 15
-          LIVE=$(curl -sS https://akl-trains.fly.dev/ \
-                 | grep -o 'pixel.css?v=[a-f0-9]*' | head -1)
-          WANT=$(grep -o 'pixel.css?v=[a-f0-9]*' web/index.html | head -1)
-          echo "live: $LIVE"
-          echo "want: $WANT"
-          test "$LIVE" = "$WANT"
+          # 1. The root redirects, and points at the canonical host.
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' https://akl-trains.fly.dev/)
+          LOC=$(curl -sS -o /dev/null -w '%{redirect_url}' https://akl-trains.fly.dev/)
+          echo "root: $CODE -> $LOC"
+          test "$CODE" = "301"
+          WANT=$(grep -oE 'CANONICAL_HOST *= *"[^"]+"' fly.toml \
+                 | grep -oE '"[^"]+"' | tr -d '"')
+          echo "expected canonical host: $WANT"
+          case "$LOC" in
+            "https://$WANT/") echo "redirect target correct" ;;
+            *) echo "redirect points somewhere unexpected"; exit 1 ;;
+          esac
+          # 2. /api/* is NOT redirected and the machine is genuinely healthy.
+          # This is the guard that keeps Fly's own health check working: a 301
+          # here makes the platform destroy the machine.
+          HCODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+                  https://akl-trains.fly.dev/api/health)
+          echo "api/health: $HCODE"
+          test "$HCODE" = "200"
           curl -sS https://akl-trains.fly.dev/api/trains \
             | python -c "import json,sys; d=json.load(sys.stdin); \
                 print('trains', d.get('count'), '| error', d.get('error'))"
