@@ -500,7 +500,7 @@ body.pixel #skinbtn {
     100% { transform: translate(24px, 102vh) }
   }
 
-  /* Was the removed 'STN' ::before badge. The conductor's whistle is the
+  /* Was the removed 'STN' ::before badge. The hoki's yellow eye is the
      natural thing to pulse instead, but animating the whole mark would be
      distracting -- so nothing blinks here now. Keyframes kept: the alert
      bell uses them. */
