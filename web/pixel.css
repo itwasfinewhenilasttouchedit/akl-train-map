@@ -1149,3 +1149,62 @@ body.pixel #stres .pee {
   white-space: nowrap;
   justify-self: start;
 }
+
+
+/* --- v2: tagline, ? button, help dialog, latest-reports ticker -------------
+   index.html defines these for the plain skin; the pixel skin is the default,
+   so without this block they render as dark-theme leftovers on an ivory page
+   (the first screenshot showed unreadable dark link tiles). */
+body.pixel #hudbar h1 { font-size: 13px; }
+body.pixel #bsub { font-size: 13px; }
+body.pixel #hudbar h1 #bsub { font-size: 12px; opacity: 1; }
+@media (max-width: 430px) {
+  /* Was 11px / 8px: the descriptor was the smallest text on the page. The
+     bar has room -- the ? button and chevron are the only other residents. */
+  body.pixel #hudbar h1 { font-size: 13px; }
+  body.pixel #hudbar h1 #bsub { font-size: 12px; }
+}
+body.pixel #tagline {
+  font-family: 'Pixelify Sans', monospace; font-size: 14px; line-height: 1.35;
+  color: var(--e-sumi); margin: 2px 0 8px;
+}
+body.pixel #helpbtn {
+  width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 0;
+  font-family: 'Press Start 2P', monospace !important; font-size: 12px;
+  background: var(--e-white); color: var(--e-ao); text-shadow: none;
+  text-transform: none;
+}
+body.pixel #helpbtn:hover { background: var(--e-sora-l); }
+body.pixel #hudbar { padding-right: calc(var(--px) * 2); }
+
+body.pixel #hl { background: var(--e-ivory) !important; border: 2px solid var(--e-ao) !important;
+  box-shadow: inset 0 0 0 2px var(--e-white), inset 0 0 0 4px var(--e-copper),
+              var(--px) var(--px) 0 0 rgba(21,32,46,.26) !important;
+  color: var(--e-sumi) !important; padding: 20px 18px; }
+body.pixel #hlwrap { background: rgba(21,32,46,.55) !important; }
+body.pixel #hl h2 { font-family: 'Press Start 2P', monospace; font-size: 12px; line-height: 1.5;
+  color: var(--e-ao); margin: 0 28px 10px 0; }
+body.pixel #hl p, body.pixel #hl li { font-family: 'Pixelify Sans', monospace; font-size: 15px; line-height: 1.4; }
+body.pixel #hl .fine { font-size: 13px; color: var(--e-muted) !important; }
+body.pixel .hllinks a { background: var(--e-white); color: var(--e-ao) !important;
+  border: 2px solid var(--e-ao); font-family: 'Pixelify Sans', monospace; font-size: 15px;
+  box-shadow: inset -2px -2px 0 var(--e-ivory2), var(--px) var(--px) 0 0 rgba(21,32,46,.3); }
+body.pixel .hllinks a:hover { background: var(--e-sora-l); }
+body.pixel .hllinks small { color: var(--e-muted); font-size: 13px; }
+body.pixel #hlclose { color: var(--e-ao); background: var(--e-white); border: 2px solid var(--e-ao);
+  border-radius: 0; width: 34px; height: 34px; font-size: 18px; }
+
+body.pixel #ticker { background: var(--e-ivory) !important; border: 2px solid var(--e-ao) !important;
+  border-radius: 0; height: 34px; bottom: 72px;
+  box-shadow: inset 0 0 0 2px var(--e-white), var(--px) var(--px) 0 0 rgba(21,32,46,.26) !important;
+  color: var(--e-sumi) !important; font-family: 'Pixelify Sans', monospace; font-size: 14px; }
+body.pixel #tklbl { background: var(--e-ao); color: #fff !important; border-right: 0;
+  font-family: 'Press Start 2P', monospace; font-size: 8px; line-height: 34px; letter-spacing: 0; }
+body.pixel .tkitem { color: var(--e-sumi) !important; background: none !important; border: 0 !important;
+  box-shadow: none !important; font-family: 'Pixelify Sans', monospace !important; font-size: 14px;
+  line-height: 30px; padding: 0 16px; }
+body.pixel .tkitem:hover { color: var(--e-ao) !important; text-decoration: underline; }
+body.pixel .tkitem .tkc { color: var(--e-muted); }
+
+body.pixel #tagline { padding: 0 2px; }
+body.pixel #hud.collapsed #tagline { margin-bottom: 2px; }

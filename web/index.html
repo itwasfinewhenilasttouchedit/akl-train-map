@@ -16,7 +16,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=08d24b441a">
+<link rel="stylesheet" href="/static/pixel.css?v=eb16866a61">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -37,6 +37,7 @@
            border:1px solid var(--line); border-radius:12px;
            box-shadow:0 8px 28px rgba(0,0,0,.5); }
   #hud { top:12px; left:12px; padding:12px 14px; min-width:226px; max-width:260px; }
+  @media (min-width:641px) { #hud { min-width:330px; max-width:330px; } }
   /* HEADER: lighter, and branded.
      Was "Auckland trains — live" over a subtitle line ("Auckland Transport
      open data") and a prose note ("Updates every 10s.") -- three stacked rows
@@ -50,10 +51,10 @@
      reads as one line without becoming a heavy slab. Sizing them separately
      is also what keeps the line inside the 260px panel -- see the clipping
      note in pixel.css before enlarging either. */
-  #hud h1 { margin:0; font-size:17px; font-weight:400; letter-spacing:.5px;
+  #hud h1 { margin:0; font-size:19px; font-weight:400; letter-spacing:.5px;
             line-height:1; display:flex; align-items:baseline; gap:6px;
             min-width:0; white-space:nowrap; }
-  #bsub { font-size:12px; color:var(--muted); letter-spacing:0;
+  #bsub { font-size:14.5px; color:var(--muted); letter-spacing:0;
           min-width:0; overflow:hidden; text-overflow:ellipsis; }
   #brand { display:flex; align-items:center; flex:0 0 auto; }
   /* Sized to sit with the wordmark's cap height rather than the 38px the
@@ -65,7 +66,13 @@
             user-select:none; margin:-4px -6px 2px; padding:4px 6px;
             border-radius:7px; }
   #hudbar:hover { background:#1f2733; }
-  #chev { margin-left:auto; color:var(--muted); font-size:12px; line-height:1;
+  #helpbtn { margin-left:auto; flex:0 0 auto; width:28px; height:28px; padding:0; border-radius:50%;
+              background:#1d2836; color:var(--fg); border:1px solid var(--edge); font:inherit;
+              font-size:15px; font-weight:700; line-height:1; cursor:pointer; }
+  #helpbtn:hover { background:#2a3a4e; }
+  #tagline { margin:0 0 10px; font-size:13.5px; line-height:1.4; color:var(--fg); }
+  #tagline b { font-weight:600; }
+  #chev { margin-left:0; color:var(--muted); font-size:12px; line-height:1;
           transition:transform .18s ease; }
   #hud.collapsed #chev { transform:rotate(-90deg); }
   #hudbody { max-height:62vh; overflow:auto; }
@@ -392,6 +399,48 @@
   .tag { display:inline-block; border-radius:5px; padding:1px 5px;
          font-size:12px; background:#1d2530; color:#9aa7b4; }
 
+
+  /* ---- latest-reports ticker ---- */
+  #ticker { position:absolute; z-index:640; bottom:72px; left:8px; right:60px;
+            height:30px; overflow:hidden; display:none; align-items:center;
+            background:var(--panel); border:1px solid var(--line); border-radius:999px;
+            box-shadow:0 4px 14px rgba(0,0,0,.45); font-size:13px; }
+  #ticker.on { display:flex; }
+  #tklbl { flex:0 0 auto; padding:0 10px; font-weight:700; font-size:11px; letter-spacing:.6px;
+           text-transform:uppercase; color:var(--muted); border-right:1px solid var(--line); line-height:30px; }
+  #tkwin { flex:1 1 auto; min-width:0; overflow:hidden; }
+  #tktrack { display:inline-flex; white-space:nowrap; will-change:transform;
+             animation:tkscroll var(--tkdur,40s) linear infinite; }
+  #ticker:hover #tktrack, #ticker:focus-within #tktrack { animation-play-state:paused; }
+  .tkitem { background:none; border:0; color:var(--fg); font:inherit; cursor:pointer;
+            padding:0 18px; line-height:28px; }
+  .tkitem:hover { text-decoration:underline; }
+  .tkitem .tkc { color:var(--muted); }
+  @keyframes tkscroll { from { transform:translateX(0) } to { transform:translateX(-50%) } }
+  @media (prefers-reduced-motion: reduce) {
+    #tktrack { animation:none; } #tkwin { overflow-x:auto; }
+    #tktrack .tkdup { display:none; }
+  }
+  #toast { bottom:110px !important; }
+
+  /* ---- help / about dialog ---- */
+  #hlwrap { position:fixed; inset:0; z-index:1350; display:none; background:rgba(5,8,12,.62);
+            backdrop-filter:blur(2px); align-items:center; justify-content:center; padding:16px; }
+  #hlwrap.on { display:flex; }
+  #hl { position:relative; width:100%; max-width:400px; max-height:86vh; overflow:auto; padding:16px; }
+  #hl h2 { margin:0 0 8px; font-size:17px; font-weight:600; }
+  #hl p { margin:0 0 10px; font-size:14px; line-height:1.45; }
+  #hl ul { margin:0 0 12px; padding-left:18px; font-size:14px; line-height:1.5; }
+  .hllinks { display:flex; flex-direction:column; gap:8px; margin:12px 0; }
+  .hllinks a { display:flex; align-items:center; gap:10px; min-height:44px; padding:0 12px;
+               border:1px solid var(--edge); border-radius:9px; background:#1d2836;
+               color:var(--fg); text-decoration:none; font-size:14px; }
+  .hllinks a:hover { background:#2a3a4e; }
+  .hllinks small { display:block; color:var(--muted); font-size:12px; }
+  #hlclose { position:absolute; top:8px; right:8px; width:36px; height:36px; border-radius:50%;
+             background:none; border:0; color:var(--muted); font-size:20px; cursor:pointer; }
+  #hl .fine { font-size:12px; color:var(--muted); margin:6px 0 0; }
+
   /* Transient confirmation. Lives above the modals so a vote cast inside a
      popup can still be acknowledged. */
   #toast { position:absolute; z-index:1000; bottom:64px; left:50%;
@@ -589,10 +638,10 @@
      warning bell #1b1b1b on #d9a21b = 7.49
      drawer body  #cfd8e3 on #232c38 = 9.80 */
 #alertbell {
-  /* Desktop: to the right of the HUD, which measures x=12..302.
+  /* Desktop: to the right of the HUD (x=12..~342 after the title widening).
      Phone override is in the media query below — the HUD goes full-width
      (x=8..382) there, so the bell cannot share its row. */
-  position:absolute; z-index:650; top:12px; left:318px;
+  position:absolute; z-index:650; top:12px; left:358px;
   width:44px; height:44px; padding:0;
   display:flex; align-items:center; justify-content:center;
   border:1px solid rgba(255,255,255,.22); border-radius:10px;
@@ -772,9 +821,11 @@
       </svg>
     </span>
     <h1>Hoki <span id="bsub">- Auckland Trains</span></h1>
+    <button id="helpbtn" type="button" aria-haspopup="dialog" aria-label="About, feedback and getting involved" title="About / feedback">?</button>
     <span id="chev">▾</span>
   </div>
   <div id="stat" aria-live="polite" aria-atomic="true"><span class="dot dead"></span>connecting…</div>
+  <p id="tagline">Track Auckland&rsquo;s trains live &mdash; then <b>rate</b> and <b>report</b> them: smells, crowding, rowdy behaviour, or something good.</p>
   <div id="hudbody">
     <div class="legend" id="legend"></div>
     <div class="err" id="err" role="alert"></div>
@@ -816,6 +867,28 @@
   <button id="favhome" class="favbtn unset" type="button">Set Home</button>
   <button id="favaway" class="favbtn unset" type="button">Set Away</button>
   <button id="planbtn" type="button"><span aria-hidden="true">&#128337;</span> Plan</button>
+</div>
+<div id="ticker" role="region" aria-label="Latest reports">
+  <span id="tklbl">Latest</span>
+  <div id="tkwin"><div id="tktrack"></div></div>
+</div>
+<div id="hlwrap" role="dialog" aria-modal="true" aria-labelledby="hltitle">
+  <div id="hl" class="panel">
+    <button id="hlclose" type="button" aria-label="Close">&times;</button>
+    <h2 id="hltitle">Hoki &mdash; Auckland Trains</h2>
+    <p>A live map of Auckland&rsquo;s trains, with rider ratings on top. Open data from Auckland Transport; reports are from riders like you.</p>
+    <ul>
+      <li><b>Track</b> &mdash; see every train moving, delays, and when yours arrives at Home or Away.</li>
+      <li><b>Rate</b> &mdash; tap a train and report a smell, crowding, damage, rowdy behaviour&hellip; or praise. Units are named like <b>AM&nbsp;701</b>, with cars AMP, AMT and AMA.</li>
+      <li><b>Warn</b> &mdash; reports colour the map and the planner so others can avoid a bad carriage.</li>
+    </ul>
+    <div class="hllinks">
+      <a href="https://github.com/itwasfinewhenilasttouchedit/akl-train-map/issues/new?template=bug_report.md" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">&#128027;</span><span>Report a bug<small>Something broken or wrong on the map</small></span></a>
+      <a href="https://github.com/itwasfinewhenilasttouchedit/akl-train-map/issues/new?template=feature_request.md" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">&#128161;</span><span>Request a feature<small>Tell us what you&rsquo;d like to see</small></span></a>
+      <a href="https://github.com/itwasfinewhenilasttouchedit/akl-train-map/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">&#129309;</span><span>Get involved<small>Help build it &mdash; code, data or testing</small></span></a>
+    </div>
+    <p class="fine">Links open GitHub in a new tab. Not affiliated with Auckland Transport.</p>
+  </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -906,10 +979,10 @@
     <label class="f">How long was the train?</label>
     <div id="lenpick" role="radiogroup" aria-label="Train length">
       <button type="button" class="len" data-n="3" role="radio" aria-checked="false">
-        3 cars <span class="cs">one set</span>
+        3 cars <span class="cs">one unit</span>
       </button>
       <button type="button" class="len" data-n="6" role="radio" aria-checked="false">
-        6 cars <span class="cs">two sets</span>
+        6 cars <span class="cs">two units</span>
       </button>
       <button type="button" class="len" data-n="" role="radio" aria-checked="false">
         Not sure
@@ -1746,7 +1819,7 @@ function popupFor(t) {
     : `<div class="pop"><b>${esc(t.dest || t.line)}</b>
     ${t.unit ? ` <span class="unit">${esc(t.unit)}</span>` : ''} ${flagHtml(t.unit)} ${peeHtml(t.unit)}<br>
     <small>${esc(t.line)}</small>${
-      // A 6-car is two sets under one trip. The rider may well board the half
+      // A 6-car is two units under one trip. The rider may well board the half
       // whose number is NOT the one AT attached the trip to, so name both.
       t.consist === 6 && t.partner_set
         ? ` <small class="dim">&middot; 6 cars, sets ${esc(t.unit && setNo(t.unit) || '?')} + ${esc(t.partner_set)}${
@@ -1901,9 +1974,9 @@ function trainDiagram(unit) {
     const cnt = (isMine && rel) ? (cars[String(rel)] | 0) : 0;
     const lvl = cnt === 0 ? 0 : (cnt >= worst && worst > 0 ? 2 : 1);
     out += `<div class="dcar${isMine ? '' : ' other'}${cnt ? ' bad lvl' + lvl : ''}"
-       title="${isMine ? `Car ${rel} of 3 (set ${esc(String(sn))})${
+       title="${isMine ? `Car ${rel} of 3 (AM ${esc(String(sn))})${
           cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ' \u2014 no reports'}`
-        : `Car ${i} \u2014 set ${esc(String(cp && cp.partner || '?'))}`}">
+        : `Car ${i} \u2014 AM ${esc(String(cp && cp.partner || '?'))}`}">
        ${carSvg(cabEnd, variant, false)}
        <span class="dnum">${i}</span>
        ${cnt ? `<span class="dflag" aria-hidden="true">${cnt}</span>` : ''}
@@ -1919,7 +1992,7 @@ function trainDiagram(unit) {
     <div class="dlegend">
       <span class="dfront">&#9654; front</span>
       ${anyBad ? '<span class="dkey"><i class="sw"></i> reported</span>' : ''}
-      ${ordered ? `<span class="dkey dim2">cars ${mine[0]}&ndash;${mine[2]} = set ${esc(String(sn))}</span>` : ''}
+      ${ordered ? `<span class="dkey dim2">cars ${mine[0]}&ndash;${mine[2]} = AM ${esc(String(sn))}</span>` : ''}
       ${six && !ordered ? '<span class="dkey dim2">6-car: we can&rsquo;t tell which half yet</span>' : ''}
       ${six_unk ? `<span class="dkey dim2">${six_unk} report${six_unk > 1 ? 's' : ''} car unknown</span>` : ''}
     </div>
@@ -1944,7 +2017,7 @@ function reportBlock(unit) {
     ${cp && cp.partner ? `<div class="couple">${(cp.consist|0) || 6}-car service &middot; ${
        cp.position === 'front' ? 'front half (cars 1&ndash;3)'
        : cp.position === 'rear' ? 'rear half (cars 4&ndash;6)' : 'coupled'}
-       &middot; with set ${esc(cp.partner)}
+       &middot; with AM ${esc(cp.partner)}
        ${cp.source === 'at'
          ? (cp.position
              ? `<span class="inf" title="Front/rear is estimated from each half&rsquo;s position.">i</span>`
@@ -1957,7 +2030,7 @@ function reportBlock(unit) {
         ? `<div class="avoid">Most reports: <b>${esc(wc)}</b>${
             f.worst_car_n > 1 ? ` (${f.worst_car_n|0})` : ''}</div>` : ''}
     ${six ? `<div class="avoid dim">${six} report${six>1?'s':''} from a 6-car
-       service &mdash; carriage can't be tied to this set</div>` : ''}
+       service &mdash; carriage can't be tied to this unit</div>` : ''}
     <div class="popacts">
       <button class="btn fbopen" data-unit="${esc(unit)}">Report this train</button>
       <button class="btn ghost loglink" data-set="${esc(sn)}">Reports (${(f.n|0)})</button>
@@ -2051,10 +2124,13 @@ function logHtml(reports) {
     return `<div class="lr">
       <div class="lh">
         <span class="flag s${r.severity|0}">${esc(r.category_label || r.category)}</span>
+        <span class="tag">${esc(r.unit || ('AM ' + r.set_no))}</span>
+        ${r.car ? `<span class="tag" title="Car type: AMP/AMA are the driving ends, AMT the middle">${esc(r.car)}</span>` : ''}
         ${r.car_label ? `<span class="tag">${esc(r.car_label)}</span>`
           : (r.carriage_label ? `<span class="tag">${esc(r.carriage_label)}</span>` : '')}
+        ${r.route ? `<span class="tag" title="Service this was reported on">${esc(r.route)}${r.service && r.service !== r.unit ? ' \u00b7 ' + esc(r.service) : ''}</span>` : ''}
         ${r.attribution === 'shared'
-          ? '<span class="tag warnish" title="Two sets were coupled; we can\u2019t tell which half">6-car</span>'
+          ? '<span class="tag warnish" title="Two units were coupled; we can\u2019t tell which half">6-car</span>'
           : ''}
         ${badge}
         ${r.about_people
@@ -2161,7 +2237,7 @@ async function openForm(unit) {
   await ensureMeta();
   fbTarget = unit;
   document.getElementById('fbunit').textContent =
-    'Unit ' + (setNo(unit) ? ('AMP ' + setNo(unit)) : String(unit));
+    'Unit ' + (setNo(unit) ? ('AM ' + setNo(unit)) : String(unit));
   document.getElementById('fbmsg').textContent = '';
   document.getElementById('fbmsg').className = 'msg';
   document.getElementById('fbnote').value = '';
@@ -2365,10 +2441,10 @@ function drawCars() {
   note.textContent = fbLen === 6
     ? (paired
         ? 'Counting from the front of the whole 6-car train. We know which '
-          + 'two sets are coupled, so your carriage is matched to the right one.'
+          + 'two units are coupled, so your carriage is matched to the right one.'
         : 'Counting from the front of the whole 6-car train. We can\u2019t tell '
           + 'which of the two coupled sets that is right now, so this helps '
-          + 'other riders but won\u2019t be pinned to one set number.')
+          + 'other riders but won\u2019t be pinned to one unit.')
     : (fbLen === 3 ? 'Counting from the front of the train.'
                    : 'Tell us the length above if you remember \u2014 it makes '
                      + 'the carriage much more useful.');
@@ -2760,10 +2836,10 @@ async function loadBoard() {
       if (r.state === 'known') {
         const p = r.level === 'high' ? 'p3' : r.level === 'medium' ? 'p2' : 'p1';
         tag = `<button type="button" class="pee ${p} setlink" data-set="${r.set_no|0}"
-                 aria-label="Show set ${r.set_no|0}">set ${r.set_no|0}</button>`;
+                 aria-label="Show AM ${r.set_no|0}">AM ${r.set_no|0}</button>`;
       } else if (r.state === 'no-data') {
         tag = `<button type="button" class="unit setlink" data-set="${r.set_no|0}"
-                 aria-label="Show set ${r.set_no|0}">set ${r.set_no|0}</button>`;
+                 aria-label="Show AM ${r.set_no|0}">AM ${r.set_no|0}</button>`;
       } else {
         // A dash, not a sentence. This cell holds a set number; when AT has
         // not attached one yet, an em dash says "nothing here" in the width of
@@ -3062,14 +3138,14 @@ function renderPlan(el, d) {
                 : r.level === 'medium' ? 'possible pee smell' : 'faint pee smell';
       warn = `<div class="jrisk ${cls}">
           <b>${esc(lbl)}</b> — <button type="button" class="setlink bare"
-             data-set="${r.set_no|0}" aria-label="Show set ${r.set_no|0}">set ${r.set_no|0}</button>, ${r.n|0} open report(s)
+             data-set="${r.set_no|0}" aria-label="Show AM ${r.set_no|0}">AM ${r.set_no|0}</button>, ${r.n|0} open report(s)
           ${r.car_label ? `<br>Avoid <b>${esc(r.car_label)}</b>` : ''}
           ${r.n_sixcar ? `<br><span class="muted">Carriage unknown: ${r.n_sixcar|0}
              report(s) came from a 6-car service</span>` : ''}
         </div>`;
     } else if (r.state === 'no-data') {
       warn = `<div class="jok"><button type="button" class="setlink bare"
-              data-set="${r.set_no|0}" aria-label="Show set ${r.set_no|0}">Set ${r.set_no|0}</button>
+              data-set="${r.set_no|0}" aria-label="Show AM ${r.set_no|0}">AM ${r.set_no|0}</button>
               — no open smell reports</div>`;
     } else {
       // Honest about the limit: AT does not publish which set runs a future
@@ -3096,6 +3172,14 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest && e.target.closest('.setlink');
   if (!b) return;
   e.preventDefault(); e.stopPropagation();
+  // The ticker is a headline strip: if the unit is not on the map right now,
+  // say so rather than dropping a reader into a report form they did not ask for.
+  if (b.classList.contains('tkitem')) {
+    const sn = String(b.dataset.set || '');
+    let live = false;
+    for (const [, m] of markers) if (setNo(m._t && m._t.unit) === sn) { live = true; break; }
+    if (!live) { toast('AM ' + sn + ' isn\u2019t running right now'); return; }
+  }
   goToSet(b.dataset.set);
 });
 
@@ -3201,6 +3285,69 @@ document.addEventListener('click', (e) => {
     } catch (e) {}
   });
 })();
+
+// ---- help dialog ------------------------------------------------------------
+(function () {
+  const wrap = document.getElementById('hlwrap');
+  const btn = document.getElementById('helpbtn');
+  if (!wrap || !btn) return;
+  let opener = null;
+  function open(e) {
+    // The button sits inside #hudbar, whose click toggles the collapse.
+    if (e) { e.stopPropagation(); e.preventDefault(); }
+    opener = document.activeElement;
+    wrap.classList.add('on');
+    document.getElementById('hlclose').focus();
+  }
+  function close() { wrap.classList.remove('on'); if (opener && opener.focus) opener.focus(); }
+  btn.addEventListener('click', open);
+  btn.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
+  document.getElementById('hlclose').addEventListener('click', close);
+  wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && wrap.classList.contains('on')) close(); });
+})();
+
+// ---- latest-reports ticker ----------------------------------------------------
+// Notes are free text from the public and are deliberately NOT shown here:
+// the ticker is a headline strip, and the full report (with moderation, votes
+// and context) is one tap away via the unit link.
+function tkAgo(iso) {
+  const t = Date.parse(iso || '');
+  if (!t) return '';
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (m < 2) return 'just now';
+  if (m < 60) return m + ' min ago';
+  const h = Math.round(m / 60);
+  if (h < 36) return h + ' h ago';
+  return Math.round(h / 24) + ' d ago';
+}
+async function loadTicker() {
+  const box = document.getElementById('ticker');
+  const track = document.getElementById('tktrack');
+  if (!box || !track) return;
+  try {
+    const d = await (await fetch('/api/feedback?limit=12', {cache:'no-store'})).json();
+    const rs = (d.reports || []).filter(r => r && r.set_no);
+    if (!rs.length) { box.classList.remove('on'); return; }
+    const item = r => {
+      const cat = String(r.category_label || r.category || '').split(' \u2014 ')[0];
+      const where = [r.car || null, r.car_label || null].filter(Boolean).join(' \u00b7 ');
+      const age = tkAgo(r.occurred_at || r.created_at);
+      return `<button type="button" class="tkitem setlink" data-set="${r.set_no|0}"
+                title="Show AM ${r.set_no|0}"><b>${esc(cat)}</b> \u2014 AM ${r.set_no|0}${
+                where ? ` <span class="tkc">${esc(where)}</span>` : ''}${
+                age ? ` <span class="tkc">\u00b7 ${esc(age)}</span>` : ''}</button>`;
+    };
+    const one = rs.map(item).join('');
+    // Doubled so translateX(-50%) loops with no visible seam. The copy is
+    // hidden from assistive tech and removed entirely under reduced motion.
+    track.innerHTML = one + `<span class="tkdup" aria-hidden="true">${one.replace(/<button /g, '<button tabindex="-1" ')}</span>`;
+    box.style.setProperty('--tkdur', Math.max(24, Math.round(track.textContent.length * 0.11)) + 's');
+    box.classList.add('on');
+  } catch (e) { console.warn('ticker failed', e); }
+}
+loadTicker();
+setInterval(loadTicker, 60000);
 </script>
 </body>
 </html>
