@@ -3,7 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Auckland Live Train Map</title>
+<title>Auckland Live Train Map — Hoki Trains</title>
+<meta name="description" content="Live map of Auckland's electric trains. See where every AM unit is right now, check station departures, and rate or report a carriage.">
+<link rel="canonical" href="https://hoki.co.nz/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Hoki Trains">
+<meta property="og:title" content="Auckland Live Train Map">
+<meta property="og:description" content="Live map of Auckland's electric trains. See where every AM unit is right now, check station departures, and rate or report a carriage.">
+<meta property="og:url" content="https://hoki.co.nz/">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Hoki Trains","alternateName":"Auckland Live Train Map","url":"https://hoki.co.nz/","description":"Live map of Auckland's electric trains. See where every AM unit is right now, check station departures, and rate or report a carriage.","applicationCategory":"TravelApplication","operatingSystem":"Any (web browser)","inLanguage":"en-NZ","offers":{"@type":"Offer","price":"0","priceCurrency":"NZD"}}</script>
 <!-- Leaflet, self-hosted from web/vendor/ (fetched + SRI-checked by
      src/fetch_leaflet.py). Was unpkg.com, which handed every visitor's IP to
      a third-party CDN before the map drew -- the same objection that put the
@@ -16,7 +25,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=eb16866a61">
+<link rel="stylesheet" href="/static/pixel.css?v=b9d88c4cdb">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -716,8 +725,12 @@
   padding:1px 6px; font-size:11px; font-weight:700; letter-spacing:.04em;
 }
 
+
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
-<!-- Resolve the skin BEFORE first paint — see the note after <body> below.
+<!-- Resolve the skin BEFORE first paint — see the note after <body><section id="about-seo" class="sr-only"><h2>About Hoki Trains</h2>
+<p>Hoki Trains shows Auckland's electric trains moving on a live map, using Auckland Transport's real-time data. Covers the Western, Eastern, Southern and Onehunga lines. Pick a station for upcoming departures, plan a trip, or rate and report a carriage on an AM unit (for example AM 701) for smells, crowding, rowdy behaviour, or something good.</p></section>
+ below.
      Sets only the page ground on <html>, which is the one surface that paints
      before any markup exists and therefore the one that can flash. -->
 <script>

@@ -20,7 +20,7 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1022,6 +1022,23 @@ async def admin_page() -> FileResponse:
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(WEB / "index.html", headers=_SHELL_CACHE)
+
+
+@app.get("/robots.txt")
+async def robots_txt() -> Response:
+    # Cloudflare's managed robots.txt prepends its own content signals; this is
+    # the origin part. Everything is crawlable except the admin and API.
+    body = "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: https://hoki.co.nz/sitemap.xml\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml() -> Response:
+    body = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            '<url><loc>https://hoki.co.nz/</loc><changefreq>daily</changefreq></url>\n'
+            '</urlset>\n')
+    return Response(body, media_type="application/xml")
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")
