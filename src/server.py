@@ -433,6 +433,7 @@ async def api_feedback_meta() -> dict:
     return {"categories": feedback.CATEGORIES,
             "severities": feedback.SEVERITIES,
             "carriages": feedback.CARRIAGES,
+            "car_types": feedback.CAR_TYPES,
             "consists": {str(k): v for k, v in feedback.CONSISTS.items()},
             "max_car": feedback.MAX_CAR,
             "people_categories": sorted(feedback.PEOPLE_CATEGORIES),
@@ -494,6 +495,29 @@ def _trip_for_set(sn: int | None) -> str | None:
         if feedback.set_number(t.get("unit")) == sn and t.get("trip_id"):
             return str(t["trip_id"])
     return None
+
+
+def _service_for_set(sn: int | None) -> dict:
+    """The service this unit is running right now, from our own live feed.
+
+    trip_id, route and the unit(s) forming the train. Taken server-side, never
+    from the client, so a report cannot claim a service it was not on. A 6-car
+    lists both coupled units (AM 402 + AM 701).
+    """
+    if sn is None:
+        return {}
+    for t in ((STATE.get("data") or {}).get("trains") or []):
+        if feedback.set_number(t.get("unit")) != sn:
+            continue
+        units = {sn}
+        for k in ("partner_set", "service_set"):
+            n = feedback.set_number(t.get(k))
+            if n:
+                units.add(n)
+        return {"trip_id": str(t["trip_id"]) if t.get("trip_id") else None,
+                "route": t.get("route") or None,
+                "service_units": sorted(units)}
+    return {}
 
 
 def _live_trips() -> set | None:
@@ -597,9 +621,13 @@ async def api_feedback_post(request: Request) -> JSONResponse:
                 # rather than "could be either coupled set".
                 partner = int(sn)
 
+    svc = _service_for_set(feedback.set_number(body.get("unit")))
     try:
         rec = feedback.add_report(
             unit=body.get("unit"),
+            car_type=body.get("car_type"),
+            route=svc.get("route"),
+            service_units=svc.get("service_units"),
             category=body.get("category"),
             severity=body.get("severity"),
             note=body.get("note"),
@@ -614,7 +642,7 @@ async def api_feedback_post(request: Request) -> JSONResponse:
             # trip_id and keep a people report alive indefinitely. If the train
             # has no trip (stabled, or not yet assigned) this stays None and
             # the report expires on the clock instead.
-            trip_id=_trip_for_set(feedback.set_number(body.get("unit"))),
+            trip_id=svc.get("trip_id"),
             # When we inferred the couple, a car in the rear half is filed
             # against the PARTNER set, which is the physically correct train.
             # See the attribution block above.

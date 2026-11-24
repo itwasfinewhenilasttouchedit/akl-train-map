@@ -110,6 +110,41 @@ CREATE TABLE IF NOT EXISTS poll(
   error   TEXT);
 
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+
+-- ---- DERIVED VIEWS (no stored data changes; safe to add/drop) -------------
+-- Vocabulary: a UNIT is the 3-car set, "AM 701"; its cars are AMP/AMT/AMA 701.
+-- A TRAIN (service) is one unit, or two coupled units when consist = 6.
+-- The feed reports ONE label per set ("AMP 701") and `partner_pk` points at a
+-- bare-number twin ("402") that never has its own rows, so identity is the
+-- number alone. These views normalise to it.
+CREATE VIEW IF NOT EXISTS v_obs_unit AS
+SELECT o.ts, CAST(trim(u.unit,'ABCDEFGHIJKLMNOPQRSTUVWXYZ ') AS INTEGER) AS unit_no,
+       CAST(trim(p.unit,'ABCDEFGHIJKLMNOPQRSTUVWXYZ ') AS INTEGER) AS partner_no,
+       o.trip_pk, o.lat, o.lon, o.bearing, o.speed_dkmh, o.delay_s,
+       o.fix_age_s, o.consist, o.pos, o.c_src, o.o_src
+FROM obs o JOIN unit u USING(unit_pk) LEFT JOIN unit p ON p.unit_pk=o.partner_pk;
+
+-- One row per TRAIN per poll. A 6-car is reported by both halves (each has its
+-- own GPS); keep the lower-numbered unit's row so the pair counts once, and
+-- take the trip/delay from whichever half has one. Joins go through the
+-- (unit_pk, ts) primary key: joining on the computed unit_no is a full scan
+-- per row and does not finish on 300k rows.
+CREATE VIEW IF NOT EXISTS v_train AS
+SELECT a.ts,
+       CASE WHEN a.partner_no IS NULL THEN 'AM '||a.unit_no
+            ELSE 'AM '||a.unit_no||' + AM '||a.partner_no END AS service_units,
+       a.unit_no, a.partner_no,
+       COALESCE(a.consist, 3) AS n_cars,
+       COALESCE(a.trip_pk, b.trip_pk) AS trip_pk,
+       a.lat, a.lon, a.bearing, a.speed_dkmh,
+       COALESCE(a.delay_s, b.delay_s) AS delay_s, a.fix_age_s
+FROM (SELECT o.*, CAST(substr(u.unit,5) AS INTEGER) AS unit_no,
+             CAST(trim(p.unit) AS INTEGER) AS partner_no
+      FROM obs o JOIN unit u USING(unit_pk)
+      LEFT JOIN unit p ON p.unit_pk=o.partner_pk) a
+LEFT JOIN unit bu ON bu.unit = 'AMP '||a.partner_no
+LEFT JOIN obs b ON b.unit_pk=bu.unit_pk AND b.ts=a.ts
+WHERE a.partner_no IS NULL OR a.unit_no < a.partner_no;
 """
 
 

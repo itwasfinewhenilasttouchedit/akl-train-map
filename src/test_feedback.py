@@ -121,6 +121,25 @@ def main() -> None:
     check("limit clamped high", len(f.list_reports(limit=99999)) <= 200, True)
     check("limit clamped low", len(f.list_reports(limit=0)) >= 1, True)
 
+    # --- unit / car / service (AM 701 = 3 cars: AMP 701, AMT 701, AMA 701) ---
+    r = f.add_report("AM 701", "smell", 2, car_pos=2, consist=3,
+                     service_units=[701], route="E-W", trip_id="T1")
+    check("middle car derives AMT", r["car_type"], "AMT")
+    check("unit is AM n", r["unit"], "AM 701")
+    check("car is AMT 701", r["car"], "AMT 701")
+    check("end car stays unknown", f.add_report("701", "smell", 1, car_pos=1, consist=3)["car_type"], None)
+    check("explicit AMA on end car", f.add_report("701", "smell", 1, car_pos=3, consist=3, car_type="ama")["car_type"], "AMA")
+    raises("AMP in middle", lambda: f.add_report("701", "smell", 1, car_pos=2, car_type="AMP"), "middle car")
+    raises("AMT on end", lambda: f.add_report("701", "smell", 1, car_pos=1, car_type="AMT"), "end car")
+    raises("bad car type", lambda: f.add_report("701", "smell", 1, car_type="XYZ"), "car type")
+    check("clean_service_units sorted+deduped", f.clean_service_units([701, "402", "AMP 701"]), "402,701")
+    check("clean_service_units caps at 2", len(f.clean_service_units([11, 22, 33]).split(",")), 2)
+    rows = [x for x in f.list_reports(701, 50) if x["service_units"] == "701"]
+    check("row carries service + route", (rows[0]["service"], rows[0]["route"], rows[0]["unit"]), ("AM 701", "E-W", "AM 701"))
+    r6 = f.add_report("402", "smell", 2, car_pos=5, consist=6, service_units=[701, 402], trip_id="T2")
+    check("car 5 of 6 is a middle car", r6["car_type"], "AMT")
+    check("trip_id kept for non-people reports", f._conn().execute("SELECT trip_id FROM reports WHERE id=?", (r6["id"],)).fetchone()[0], "T2")
+
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
 

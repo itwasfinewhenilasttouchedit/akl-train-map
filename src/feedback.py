@@ -126,6 +126,18 @@ def init_db() -> None:
         # vehicle report, by design.
         _add_column(c, "reports", "behaviour", "TEXT")
         _add_column(c, "reports", "trip_id", "TEXT")
+        # Which physical car (AMP / AMT / AMA) and which SERVICE the rider was
+        # on. A unit is the 3-car set (AM 701); its cars are AMP 701, AMT 701
+        # and AMA 701. `route` and `service_units` come from the server's own
+        # live feed at report time, never from the client.
+        _add_column(c, "reports", "car_type", "TEXT")
+        _add_column(c, "reports", "route", "TEXT")
+        _add_column(c, "reports", "service_units", "TEXT")
+        # The middle car of a 3-car unit is always the trailer (AMT), so a
+        # stored position 2 (or 5 on a six) PROVES the car type. Derived, not
+        # guessed; end cars stay NULL because AMP vs AMA is not recoverable.
+        c.execute("""UPDATE reports SET car_type='AMT'
+                     WHERE car_type IS NULL AND car_pos IN (2,5)""")
         # Backfill the legacy A/B/C answers into positions. consist stays NULL
         # on purpose: those reports were collected before we asked about train
         # length, so we genuinely do not know whether they were 3- or 6-car.
@@ -207,6 +219,39 @@ CARRIAGES = {"a": "Car A (front)", "b": "Car B (middle)", "c": "Car C (rear)",
              "unsure": "Not sure"}
 _LEGACY_POS = {"a": 1, "b": 2, "c": 3}
 
+# Terminology: a UNIT is the 3-car set, written "AM 701". Its three cars are
+# AMP 701 (driving, pantograph), AMT 701 (middle trailer) and AMA 701 (the other
+# driving car). A SERVICE is what the unit is running: one unit (3 cars) or two
+# coupled units (6 cars), on a route and trip.
+CAR_TYPES = {"AMP": "AMP (driving, pantograph)", "AMT": "AMT (middle trailer)",
+             "AMA": "AMA (driving)"}
+_MIDDLE_POS = {2, 5}
+
+
+def car_type_for(car_pos: int | None, given: str | None) -> str | None:
+    """Validate/derive the car prefix. Middle cars are AMT; ends are AMP/AMA."""
+    given = (given or "").strip().upper() or None
+    if given and given not in CAR_TYPES:
+        raise ValueError(f"car type must be one of: {', '.join(CAR_TYPES)}")
+    if car_pos is None:
+        return given
+    if car_pos in _MIDDLE_POS:
+        if given and given != "AMT":
+            raise ValueError(f"car {car_pos} is a middle car, which is an AMT, not {given}")
+        return "AMT"
+    if given == "AMT":
+        raise ValueError(f"car {car_pos} is an end car (AMP or AMA), not an AMT")
+    return given
+
+
+def clean_service_units(raw) -> str | None:
+    """'402,701' from [701, '402'] / '701+402'. Max two units, deduped, sorted."""
+    if raw in (None, "", []):
+        return None
+    parts = raw if isinstance(raw, (list, tuple)) else re.split(r"[^0-9]+", str(raw))
+    nums = sorted({n for n in (set_number(x) for x in parts if str(x).strip()) if n})
+    return ",".join(str(n) for n in nums[:2]) or None
+
 
 def car_label(car_pos: int | None, consist: int | None,
               half_resolved: bool = False) -> str | None:
@@ -246,7 +291,9 @@ def add_report(unit: str | None, category: str, severity: int,
                occurred_at: str | None = None, carriage: str | None = None,
                car_pos: int | None = None, consist: int | None = None,
                partner_set: int | None = None, behaviour: str | None = None,
-               trip_id: str | None = None, **_ignored) -> dict:
+               trip_id: str | None = None, car_type: str | None = None,
+               route: str | None = None, service_units=None,
+               **_ignored) -> dict:
     """Validate and store one report. Raises ValueError with a usable message."""
     sn = set_number(unit)
     if sn is None:
@@ -313,13 +360,17 @@ def add_report(unit: str | None, category: str, severity: int,
         car_pos = car_pos - 3 if car_pos > 3 else car_pos
         half_resolved = True
 
+    car_type = car_type_for(car_pos, car_type)
+    route = (str(route).strip()[:20] or None) if route else None
+    service_units = clean_service_units(service_units)
+
     # The trip the rider was on, so a people report can expire when that
     # journey ends rather than on a timer. Opaque GTFS id; bounded and stored
     # as-is. Only meaningful for people categories, so don't keep it otherwise
     # — it is one more identifier attached to a report for no benefit.
+    # Kept for EVERY category now: the service a report was made on is part of
+    # the record (it identifies a journey, not a person).
     trip_id = (str(trip_id).strip()[:80] or None) if trip_id else None
-    if category not in PEOPLE_CATEGORIES:
-        trip_id = None
 
     occ = (occurred_at or "").strip() or None
     if occ:
@@ -348,14 +399,17 @@ def add_report(unit: str | None, category: str, severity: int,
             """INSERT INTO reports
                (set_no, raw_unit, category, severity, note, case_ref,
                 occurred_at, carriage, car_pos, consist, half_resolved,
-                behaviour, trip_id, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                behaviour, trip_id, car_type, route, service_units, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sn, (unit or "").strip()[:20] or None, category, severity, note,
              case_ref, occ, carriage, car_pos, consist,
-             1 if half_resolved else 0, behaviour, trip_id, now))
+             1 if half_resolved else 0, behaviour, trip_id, car_type, route,
+             service_units, now))
         rid = cur.lastrowid
     LOG.info("feedback #%d: set %d %s sev%d", rid, sn, category, severity)
-    return {"id": rid, "set_no": sn, "category": category, "severity": severity}
+    return {"id": rid, "set_no": sn, "unit": f"AM {sn}", "car_type": car_type,
+            "car": f"{car_type} {sn}" if car_type else None,
+            "category": category, "severity": severity}
 
 
 # ---------------------------------------------------------------- confirmations
@@ -544,7 +598,14 @@ def _people_expired(trip_id: str | None, occurred_at: str | None,
 
 
 def _row(r: sqlite3.Row) -> dict:
-    return {"id": r["id"], "set_no": r["set_no"], "unit": f"AMP {r['set_no']}",
+    return {"id": r["id"], "set_no": r["set_no"], "unit": f"AM {r['set_no']}",
+            "car_type": r["car_type"] if "car_type" in r.keys() else None,
+            "car": (f"{r['car_type']} {r['set_no']}"
+                    if "car_type" in r.keys() and r["car_type"] else None),
+            "route": r["route"] if "route" in r.keys() else None,
+            "service_units": r["service_units"] if "service_units" in r.keys() else None,
+            "service": (" + ".join(f"AM {n}" for n in r["service_units"].split(","))
+                        if "service_units" in r.keys() and r["service_units"] else None),
             "raw_unit": r["raw_unit"], "category": r["category"],
             "category_label": CATEGORIES.get(r["category"], r["category"]),
             "severity": r["severity"], "severity_label": SEVERITIES.get(r["severity"]),
