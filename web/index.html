@@ -25,7 +25,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=9a90e42c0e">
+<link rel="stylesheet" href="/static/pixel.css?v=d4abc2a14c">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -103,7 +103,8 @@
              background:none; border:0; color:var(--fg); cursor:pointer;
              text-align:left; padding:8px 6px; border-radius:7px;
              font:inherit; min-height:44px; }
-  .pickrow:hover, .pickrow:focus { background:#1f2733; outline:none; }
+  .pickrow:hover, .pickrow:focus-visible { background:#1f2733; outline:none; }
+  #pickwrap:focus { outline:none; }
   .pickrow:focus-visible { box-shadow:inset 0 0 0 2px var(--fg); }
   .pickico { flex:0 0 16px; line-height:0; color:var(--muted); }
   .picktxt { display:flex; flex-direction:column; gap:1px; min-width:0; }
@@ -1392,7 +1393,7 @@ function openChooser(hits, x, y) {
     // broken, so fall back to the line name and let the destination carry
     // the identity.
     const sn = setNo(t.unit) || t.unit || null;
-    const title = sn ? String(sn) : (t.line || 'Train');
+    const title = sn ? ('AM ' + sn) : (t.line || 'Train');
     const where = t.dest ? `to ${esc(t.dest)}` : 'not in service';
     const pos = t.consist_position
       ? ` &middot; ${esc(t.consist_position)} half` : '';
@@ -1422,8 +1423,11 @@ function openChooser(hits, x, y) {
     top = Math.max(pad, y - r.height - 12);
   wrap.style.left = left + 'px';
   wrap.style.top = top + 'px';
-  const first = body.querySelector('.pickrow');
-  if (first) first.focus();
+  // Focus the dialog, not the first row: a focused row paints as the selected
+  // (dark) state, so the first option looked pre-highlighted and, in the pixel
+  // skin, unreadable. Keyboard users Tab into the rows; Esc still closes.
+  wrap.setAttribute('tabindex', '-1');
+  wrap.focus({ preventScroll: true });
 }
 
 // Single capture-phase handler for the whole map. Replaces BOTH the old

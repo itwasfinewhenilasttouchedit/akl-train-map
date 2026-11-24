@@ -154,7 +154,7 @@ body.pixel #spwrap { background: rgba(21,32,46,.55) !important; }
    highlight reads as a chosen ticket rather than a hover tint. */
 body.pixel .pickrow,
 body.pixel .sprow { color: var(--e-sumi) !important; }
-body.pixel .pickrow:hover, body.pixel .pickrow:focus,
+body.pixel .pickrow:hover, body.pixel .pickrow:focus-visible,
 body.pixel .sprow:hover, body.pixel .sprow.sel {
   background: var(--e-ao) !important;
   color: var(--e-white) !important;
