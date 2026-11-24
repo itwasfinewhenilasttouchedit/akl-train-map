@@ -123,7 +123,10 @@ services:
       # The dashboard itself is an HTML file written to ./data/goaccess, served
       # by the dash-web container below. Both must be reachable from the admin
       # host, because the page opens a websocket back to this port to live-update.
-      - "${DMZ_BIND:-127.0.0.1}:7890:7890"
+      # Container port is 443 on purpose: GoAccess bakes --port into the page and
+      # the browser connects to wss://<ws-url host>:<that port>. 443 is the default
+      # wss port, so a reverse proxy on 443 can front it. Host port stays 7890.
+      - "${DMZ_BIND:-127.0.0.1}:7890:443"
     # TZ so the dashboard's hourly breakdown reads in local time. The app logs
     # with a numeric offset, so GoAccess needs --tz to agree with it or every
     # bucket lands 13 hours out -- which on a commuter site would put the
@@ -143,7 +146,7 @@ services:
           --log-file=/srv/data/access.log \
           --log-format=COMBINED \
           --real-time-html \
-          --port=7890 \
+          --port=443 \
           --ws-url=${DASH_WS_URL:-ws://127.0.0.1:7890} \
           --output=/srv/report/index.html \
           --db-path=/srv/report \
