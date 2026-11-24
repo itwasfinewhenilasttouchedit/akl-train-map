@@ -1164,10 +1164,6 @@ body.pixel #hudbar h1 #bsub { font-size: 12px; opacity: 1; }
   body.pixel #hudbar h1 { font-size: 13px; }
   body.pixel #hudbar h1 #bsub { font-size: 12px; }
 }
-body.pixel #tagline {
-  font-family: 'Pixelify Sans', monospace; font-size: 14px; line-height: 1.35;
-  color: var(--e-sumi); margin: 2px 0 8px;
-}
 body.pixel #helpbtn {
   width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 0;
   font-family: 'Press Start 2P', monospace !important; font-size: 12px;
@@ -1206,5 +1202,3 @@ body.pixel .tkitem { color: var(--e-sumi) !important; background: none !importan
 body.pixel .tkitem:hover { color: var(--e-ao) !important; text-decoration: underline; }
 body.pixel .tkitem .tkc { color: var(--e-muted); }
 
-body.pixel #tagline { padding: 0 2px; }
-body.pixel #hud.collapsed #tagline { margin-bottom: 2px; }

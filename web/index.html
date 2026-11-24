@@ -25,7 +25,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=b9d88c4cdb">
+<link rel="stylesheet" href="/static/pixel.css?v=9a90e42c0e">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -79,8 +79,6 @@
               background:#1d2836; color:var(--fg); border:1px solid var(--edge); font:inherit;
               font-size:15px; font-weight:700; line-height:1; cursor:pointer; }
   #helpbtn:hover { background:#2a3a4e; }
-  #tagline { margin:0 0 10px; font-size:13.5px; line-height:1.4; color:var(--fg); }
-  #tagline b { font-weight:600; }
   #chev { margin-left:0; color:var(--muted); font-size:12px; line-height:1;
           transition:transform .18s ease; }
   #hud.collapsed #chev { transform:rotate(-90deg); }
@@ -838,7 +836,6 @@
     <span id="chev">▾</span>
   </div>
   <div id="stat" aria-live="polite" aria-atomic="true"><span class="dot dead"></span>connecting…</div>
-  <p id="tagline">Track Auckland&rsquo;s trains live &mdash; then <b>rate</b> and <b>report</b> them: smells, crowding, rowdy behaviour, or something good.</p>
   <div id="hudbody">
     <div class="legend" id="legend"></div>
     <div class="err" id="err" role="alert"></div>
