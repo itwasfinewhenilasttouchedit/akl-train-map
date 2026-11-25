@@ -63,6 +63,10 @@ _SHELL_CACHE = {
 }
 
 POLL_SECONDS = 20
+# Service alerts are human-authored notices; they change on the order of hours.
+# Matched to alerts.CACHE_TTL_S so the archive poller and any browser request
+# share one upstream fetch instead of each paying for their own.
+ALERT_POLL_SECONDS = int(os.environ.get("ALERT_POLL_SECONDS", "300"))
 
 STATE: dict = {"data": None, "error": None, "fetched": 0}
 
@@ -128,6 +132,45 @@ def _load_cache() -> None:
                  d.get("count", 0), age)
     except Exception as e:
         LOG.warning("could not load staged cache: %s", e)
+
+
+async def alert_poller() -> None:
+    """Fetch and archive service alerts on their own clock.
+
+    `/api/alerts` cannot be the recording hook: it only runs when a browser
+    asks, so an unvisited night would archive nothing and the disruption that
+    explains the morning's delays would be missing. This loop runs regardless
+    of traffic.
+
+    It costs no extra AT calls in practice — `alerts.fetch()` has a 300 s cache
+    and this ticks at the same interval, so browser requests continue to be
+    served from that cache rather than adding upstream load.
+    """
+    while True:
+        try:
+            key = live.api_key()
+            if key:
+                payload = await alerts.fetch(
+                    key,
+                    rail_routes=live.RAIL_ROUTE_IDS,
+                    rail_stop_ids=set(live.STOP_IDS),
+                    stop_code=live.STOP_IDS,
+                    station_name=live.station,
+                )
+                a = archive.get()
+                if a is not None:
+                    new = await asyncio.get_running_loop().run_in_executor(
+                        None, a.record_alerts, payload)
+                    if new:
+                        LOG.info("alerts: %d new revision(s) archived "
+                                 "(%d now, %d upcoming)", new,
+                                 len(payload.get("now") or []),
+                                 len(payload.get("upcoming") or []))
+        except Exception as e:                                  # noqa: BLE001
+            # Never let the alert archive take the app down; the live map is
+            # the product and alerts are a side channel.
+            LOG.warning("alert poll failed: %s", e)
+        await asyncio.sleep(ALERT_POLL_SECONDS)
 
 
 async def poller() -> None:
@@ -347,6 +390,7 @@ async def _startup() -> None:
     archive.init()
     _load_cache()
     asyncio.create_task(poller())
+    asyncio.create_task(alert_poller())
 
 
 @app.get("/api/trains")
@@ -399,6 +443,28 @@ async def api_archive(unit: str | None = None, limit: int = 200) -> JSONResponse
         return JSONResponse({"enabled": True, "unit": unit,
                              "rows": a.history(unit, min(int(limit), 2000))})
     return JSONResponse(a.stats())
+
+
+@app.get("/api/archive/day")
+async def api_archive_day(day: str | None = None,
+                          vs: str | None = None) -> JSONResponse:
+    """Daily punctuality summary, optionally against another day.
+
+    This exists because answering "how are the scores today vs yesterday"
+    previously meant hand-written SQL over SSH. Totals come from the archive,
+    and any service alert whose observed lifetime overlaps a flagged hour is
+    attached to it, so a bad hour arrives with its cause instead of a shrug.
+
+    Comparison honesty: when two days are compared, both are clipped to the
+    SAME hour range, because an in-progress day would otherwise be measured
+    against a full one and look artificially good or bad. The clip is
+    reported in the response rather than applied silently.
+    """
+    a = archive.get()
+    if a is None:
+        return JSONResponse({"enabled": False})
+    return JSONResponse(await asyncio.get_running_loop().run_in_executor(
+        None, a.day_summary, day, vs))
 
 
 # ---------------------------------------------------------------- feedback

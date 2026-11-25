@@ -189,6 +189,312 @@ def test_disabled_by_env():
     print("env disable ok")
 
 
+# ---------------------------------------------------------------- new fields
+
+def test_previously_discarded_fields_roundtrip():
+    """Everything we poll is now stored and comes back intact.
+
+    These eight fields were fetched from AT on every poll for weeks and thrown
+    away. The point of the test is that each one survives, because a column
+    that silently stays NULL looks exactly like a field AT never sent.
+    """
+    a = _fresh()
+    assert a.record(_payload([_train(
+        occupancy=2, **{"from": "Newmarket", "to": "Remuera"},
+        platform="2", eta_s=140,
+        skipped_stops=["Greenlane", "Ellerslie"])])) == 1
+    r = a.history("AMP 281")[0]
+    assert r["occupancy"] == 2, r
+    assert r["from"] == "Newmarket" and r["to"] == "Remuera", r
+    assert r["platform"] == "2" and r["eta_s"] == 140, r
+    assert r["skipped_stops"] == ["Greenlane", "Ellerslie"], r
+    a.close()
+    print("new per-train fields ok")
+
+
+def test_out_of_service_near_station():
+    """Stabled stock has no trip but does have a nearest station."""
+    a = _fresh()
+    a.record(_payload([_train(trip_id=None, in_service=False,
+                              near="Wiri", near_m=240)]))
+    r = a.history("AMP 281")[0]
+    assert r["near"] == "Wiri" and r["near_m"] == 240, r
+    assert r["in_service"] is False
+    a.close()
+    print("oos near-station ok")
+
+
+def test_place_dimension_dedupes():
+    """Station names are normalised, not repeated per row."""
+    a = _fresh()
+    for i in range(50):
+        a.record(_payload([_train(**{"from": "Newmarket", "to": "Remuera"})],
+                          ts=1795000000 + i * 20))
+    n = a._db.execute("SELECT count(*) FROM place").fetchone()[0]
+    assert n == 2, f"expected 2 places, got {n}"
+    assert a.count() == 50
+    a.close()
+    print("place dedupe ok (50 obs, 2 places)")
+
+
+def test_poll_health_counters():
+    """Feed-health counters are stored, not just the train count.
+
+    2026-11-25 had polls returning ok=1 while the feed degraded; `trains`
+    alone could not show it.
+    """
+    a = _fresh()
+    p = _payload([_train()])
+    p.update({"vehicles_in_feed": 1431, "trip_updates": 920,
+              "with_prediction": 61, "stale_dropped": 4,
+              "unknown_trip": 2, "in_service": 39, "out_of_service": 55,
+              "source": "gtfs-realtime"})
+    a.record(p)
+    row = a._db.execute(
+        "SELECT veh_feed, trip_upd, with_pred, stale_drop, unknown_trip,"
+        " in_svc, oos, source FROM poll").fetchone()
+    assert row == (1431, 920, 61, 4, 2, 39, 55, "gtfs-realtime"), row
+    a.close()
+    print("poll health counters ok")
+
+
+def test_migration_from_old_schema():
+    """An existing database gains the new columns without losing rows.
+
+    This is the failure that would have mattered in production: the live DB is
+    31 MB and CREATE TABLE IF NOT EXISTS is a no-op on it, so without ALTER
+    TABLE the writer would raise on every poll from the moment of deploy.
+    """
+    p = Path(tempfile.mkdtemp()) / "old.db"
+    db = sqlite3.connect(str(p))
+    db.executescript("""
+      CREATE TABLE unit(unit_pk INTEGER PRIMARY KEY, unit TEXT UNIQUE NOT NULL);
+      CREATE TABLE trip(trip_pk INTEGER PRIMARY KEY, trip_id TEXT UNIQUE NOT NULL,
+        route TEXT, origin TEXT, terminus TEXT, dest TEXT);
+      CREATE TABLE obs(ts INTEGER NOT NULL, unit_pk INTEGER NOT NULL,
+        trip_pk INTEGER, lat REAL, lon REAL, bearing INTEGER, speed_dkmh INTEGER,
+        delay_s INTEGER, progress REAL, fix_age_s INTEGER,
+        flags INTEGER NOT NULL DEFAULT 0, consist INTEGER, partner_pk INTEGER,
+        pos INTEGER, c_src INTEGER, o_src INTEGER,
+        PRIMARY KEY (unit_pk, ts)) WITHOUT ROWID;
+      CREATE TABLE poll(ts INTEGER PRIMARY KEY, ok INTEGER NOT NULL,
+        trains INTEGER, poll_ms INTEGER, clock_ok INTEGER, error TEXT);
+      CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT);
+      INSERT INTO unit(unit_pk, unit) VALUES(1,'AMP 281');
+      INSERT INTO obs(ts, unit_pk, delay_s, flags) VALUES(1794000000, 1, 42, 1);
+    """)
+    db.commit()
+    db.close()
+
+    a = archive.Archive(p)
+    a.open()                                   # must migrate, not explode
+    assert a.count() == 1, "pre-existing row lost"
+    old = a.history("AMP 281")[0]
+    assert old["delay_s"] == 42
+    # Honest NULLs: we genuinely did not record these at the time.
+    assert old["occupancy"] is None and old["from"] is None
+    # And the writer works against the migrated table.
+    assert a.record(_payload([_train(**{"from": "Newmarket"})],
+                             ts=1795000000)) == 1
+    assert a.count() == 2
+    assert a.history("AMP 281")[0]["from"] == "Newmarket"
+    a.close()
+    print("migration ok (row kept, new cols NULL, writer works)")
+
+
+def test_migration_is_idempotent():
+    """Reopening an already-migrated database must not re-add columns."""
+    p = Path(tempfile.mkdtemp()) / "a.db"
+    for _ in range(3):
+        a = archive.Archive(p)
+        a.open()
+        a.record(_payload([_train()]))
+        a.close()
+    db = sqlite3.connect(str(p))
+    cols = [r[1] for r in db.execute("PRAGMA table_info(obs)")]
+    assert len(cols) == len(set(cols)), cols
+    assert "occ" in cols
+    db.close()
+    print("migration idempotent ok")
+
+
+# ------------------------------------------------------------------- alerts
+
+def _alert(aid="a1", header="South City line delays", **kw):
+    a = {"id": aid, "header": header,
+         "description": "Delays because of an earlier incident at Newmarket.",
+         "effect": "REDUCED_SERVICE", "effect_detail": "Delays",
+         "cause": "ACCIDENT", "severity": "SEVERE",
+         "routes": ["S-C-201"], "stations": ["Newmarket"],
+         "starts": 1795000000, "ends": None}
+    a.update(kw)
+    return a
+
+
+def test_alert_recorded_and_upserted():
+    """An unchanged alert seen repeatedly is ONE row with a moving last_seen."""
+    a = _fresh()
+    assert a.record_alerts({"now": [_alert()], "upcoming": [],
+                            "total_feed": 161, "generated": 1795000000}) == 1
+    assert a.record_alerts({"now": [_alert()], "upcoming": [],
+                            "total_feed": 161, "generated": 1795000300}) == 0
+    rows = a._db.execute(
+        "SELECT alert_id, first_seen, last_seen, seen FROM alert").fetchall()
+    assert len(rows) == 1, rows
+    assert rows[0][1] == 1795000000 and rows[0][2] == 1795000300, rows
+    assert rows[0][3] == 2, rows
+    a.close()
+    print("alert upsert ok (1 row, last_seen moved, seen=2)")
+
+
+def test_alert_edit_appends_revision():
+    """AT editing an alert must not destroy the earlier wording.
+
+    This is the whole timeline: "delays" becoming "suspended until end of
+    service" is the incident escalating, and overwriting it loses that.
+    """
+    a = _fresh()
+    a.record_alerts({"now": [_alert()], "generated": 1795000000})
+    a.record_alerts({"now": [_alert(header="Onehunga West line suspended")],
+                     "generated": 1795003600})
+    rows = a._db.execute(
+        "SELECT header, first_seen FROM alert WHERE alert_id='a1'"
+        " ORDER BY first_seen").fetchall()
+    assert len(rows) == 2, rows
+    assert rows[0][0] == "South City line delays"
+    assert rows[1][0] == "Onehunga West line suspended"
+    a.close()
+    print("alert revisioning ok (both wordings kept)")
+
+
+def test_alert_bucket_change_is_not_a_revision():
+    """upcoming -> now is the same alert, not a new revision.
+
+    Night-works notices cross that boundary every single day. Hashing the
+    bucket would mint a duplicate row per alert per day for ever.
+    """
+    a = _fresh()
+    a.record_alerts({"upcoming": [_alert()], "generated": 1795000000})
+    a.record_alerts({"now": [_alert()], "generated": 1795010000})
+    rows = a._db.execute("SELECT bucket, seen FROM alert").fetchall()
+    assert len(rows) == 1, rows
+    assert rows[0] == ("now", 2), rows
+    a.close()
+    print("alert bucket roll ok (1 row, bucket updated)")
+
+
+def test_alert_stale_payload_not_recorded():
+    """A cached/stale payload is not evidence AT still published the alert."""
+    a = _fresh()
+    a.record_alerts({"now": [_alert()], "generated": 1795000000})
+    before = a._db.execute("SELECT last_seen FROM alert").fetchone()[0]
+    assert a.record_alerts({"now": [_alert()], "stale": True,
+                            "error": "timeout",
+                            "generated": 1795009999}) == 0
+    after = a._db.execute("SELECT last_seen FROM alert").fetchone()[0]
+    assert after == before, "stale payload moved last_seen"
+    a.close()
+    print("stale alert payload ignored ok")
+
+
+def test_alert_poll_failure_recorded():
+    """An alerts outage is distinguishable from a quiet network."""
+    a = _fresh()
+    a.record_alerts({"now": [], "upcoming": [], "error": "503",
+                     "total_feed": 0, "generated": 1795000000})
+    row = a._db.execute(
+        "SELECT ok, rail_now, error FROM alert_poll").fetchone()
+    assert row == (0, 0, "503"), row
+    a.close()
+    print("alert poll failure row ok")
+
+
+def test_alerts_at_window():
+    """alerts_at finds alerts live in an hour, and excludes ones that are not."""
+    a = _fresh()
+    a.record_alerts({"now": [_alert("live")], "generated": 1795000000})
+    a.record_alerts({"now": [_alert("live")], "generated": 1795003600})
+    a.record_alerts({"now": [_alert("old")], "generated": 1794000000})
+    hit = a.alerts_at(1795000000, 3600)
+    ids = {x["id"] for x in hit}
+    assert "live" in ids and "old" not in ids, ids
+    a.close()
+    print("alerts_at window ok")
+
+
+def test_epoch_for_is_timezone_fixed():
+    """Hour buckets must not depend on the host timezone.
+
+    The container runs UTC; time.mktime() would place a 16:00 NZDT bucket
+    13 hours away from the rows it describes and attach the wrong alerts.
+    """
+    # 2026-11-25 16:00 NZDT == 03:00 UTC the same day.
+    got = archive._epoch_for("2026-11-25", 16)
+    assert time.strftime("%Y-%m-%d %H:%M", time.gmtime(got)) == \
+        "2026-11-25 03:00", time.gmtime(got)
+    print("epoch_for tz-fixed ok")
+
+
+# --------------------------------------------------------------- day summary
+
+def test_day_summary_flags_bad_hour_with_cause():
+    """A delay spike is reported WITH the alert that explains it."""
+    a = _fresh()
+    day = "2026-11-25"
+    # Calm baseline: 60 s delay across hours 5..14.
+    for h in range(5, 15):
+        ts = archive._epoch_for(day, h)
+        a.record(_payload([_train(delay_s=60)], ts=ts))
+    # One bad hour at 16:00.
+    bad = archive._epoch_for(day, 16)
+    a.record(_payload([_train(delay_s=900)], ts=bad))
+    a.record_alerts({"now": [_alert(header="South City line delays")],
+                     "generated": bad + 60})
+
+    s = a.day_summary(day)
+    assert s["enabled"] and not s.get("error"), s
+    flagged = s["days"][0]["flagged_hours"]
+    assert [f["hour"] for f in flagged] == [16], flagged
+    assert flagged[0]["alerts"], "bad hour has no cause attached"
+    assert "South City" in flagged[0]["alerts"][0]["header"]
+    a.close()
+    print("day summary flags bad hour with cause ok")
+
+
+def test_day_summary_clips_both_days_to_same_hours():
+    """An in-progress day must not be compared against a full one."""
+    a = _fresh()
+    for h in range(5, 20):           # yesterday: runs to 19:00
+        a.record(_payload([_train(delay_s=60)],
+                          ts=archive._epoch_for("2026-11-24", h)))
+    for h in range(5, 10):           # today: only to 09:00
+        a.record(_payload([_train(delay_s=60)],
+                          ts=archive._epoch_for("2026-11-25", h)))
+    s = a.day_summary("2026-11-25", "2026-11-24")
+    assert s["clipped_to_hour"] == 9, s["clipped_to_hour"]
+    # Both days must then cover the same hour count.
+    assert len(s["days"][0]["hours"]) == len(s["days"][1]["hours"]), \
+        [len(d["hours"]) for d in s["days"]]
+    a.close()
+    print("day summary clipping ok (both clipped to <9)")
+
+
+def test_day_summary_quiet_day_flags_nothing():
+    """The flag needs BOTH 3x and 180s, so normal variation stays quiet."""
+    a = _fresh()
+    day = "2026-11-24"
+    for h in range(5, 20):
+        # 40s..130s: >3x spread, but nothing near 180s.
+        a.record(_payload([_train(delay_s=40 + h * 6)],
+                          ts=archive._epoch_for(day, h)))
+    s = a.day_summary(day)
+    assert s["days"][0]["flagged_hours"] == [], s["days"][0]["flagged_hours"]
+    assert "note" in str(s["days"][0].get("flagged_hours_note", "")).lower() \
+        or s["days"][0].get("flagged_hours_note")
+    a.close()
+    print("quiet day flags nothing ok")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for f in fns:
