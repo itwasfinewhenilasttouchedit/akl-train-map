@@ -424,7 +424,7 @@ async def api_health() -> dict:
             "vehicles_in_feed": d.get("vehicles_in_feed") if d else None,
             "with_prediction": d.get("with_prediction") if d else None,
             "poll_ms": d["poll_ms"] if d else None,
-            "feedback": feedback.stats()["reports"],
+            "feedback": feedback.stats(repeat=False)["reports"],
             "last_fetch": STATE["fetched"], "error": STATE["error"]}
 
 
@@ -524,7 +524,7 @@ async def api_feedback_meta() -> dict:
 async def api_feedback(unit: str | None = None, limit: int = 50) -> dict:
     sn = feedback.set_number(unit) if unit else None
     return {"reports": feedback.list_reports(sn, limit),
-            "stats": feedback.stats()}
+            "stats": feedback.stats(_live_trips())}
 
 
 @app.post("/api/feedback/{report_id}/vote")
@@ -1061,7 +1061,7 @@ async def api_admin_reports(request: Request, limit: int = 200) -> JSONResponse:
     if not admin_ok(request):
         return JSONResponse({"error": "not authorised"}, status_code=401)
     return JSONResponse({"reports": feedback.list_all(limit),
-                         "stats": feedback.stats()})
+                         "stats": feedback.stats(_live_trips())})
 
 
 @app.post("/api/admin/reports/{report_id}/hide")

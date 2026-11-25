@@ -378,6 +378,10 @@
   .btn.ghost { background:transparent; }
   .avoid { margin-top:6px; font-size:11px; background:#45321d; color:#f0a35e;
            border-radius:5px; padding:3px 6px; }
+  /* Breakdown under the History button. Deliberately muted and unboxed: it
+     explains a number, it is not itself a warning. */
+  .histnote { margin-top:4px; font-size:11px; color:var(--muted);
+              font-variant-numeric:tabular-nums; }
   .log { max-height:210px; overflow:auto; }
   .lr { border-top:1px solid var(--line); padding:6px 0; }
   .lh { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
@@ -1929,6 +1933,31 @@ function warnMini(unit) {
   return skull + `<span class="wmini ${cls}" title="${esc(tip)}" aria-label="${esc(tip)}">&#9888;</span>`;
 }
 
+// Accounts for the History number so a rider can reconcile it with what the
+// popup shows. The badge counts OPEN VEHICLE FAULTS (n_neg); the History
+// button counts every kept row (n). Those legitimately differ -- praise is
+// not a fault, a cleared report is history, and a people report expires when
+// the train reaches its terminus -- but showing "History (2)" above a popup
+// with no badge and no explanation reads as the map being broken. So name the
+// difference instead of hiding it.
+function histNote(f) {
+  if (!f) return '';
+  const n = f.n | 0;
+  const open = f.n_neg != null ? (f.n_neg | 0) : n;
+  const parts = [];
+  if (open) parts.push(open + ' open');
+  if (f.n_people)   parts.push(f.n_people + ' on this service');
+  if (f.n_resolved) parts.push(f.n_resolved + ' cleared by riders');
+  if (f.n_expired)  parts.push(f.n_expired + ' ended with the journey');
+  if (f.n_praise)   parts.push(f.n_praise + ' praise');
+  // Suppress the gloss ONLY when the whole history is open faults, i.e. the
+  // badge already says the same number. A single NON-open cause is precisely
+  // the confusing case (badge 0, History 2) and must still be explained.
+  if (parts.length === 1 && open === n) return '';
+  if (!parts.length) return '';
+  return `<div class="histnote">${esc(parts.join(' \u00b7 '))}</div>`;
+}
+
 function flagHtml(unit) {
   const f = flagFor(unit);
   if (!f) return '';
@@ -2047,8 +2076,9 @@ function reportBlock(unit) {
        service &mdash; carriage can't be tied to this unit</div>` : ''}
     <div class="popacts">
       <button class="btn fbopen" data-unit="${esc(unit)}">Report this train</button>
-      <button class="btn ghost loglink" data-set="${esc(sn)}">Reports (${(f.n|0)})</button>
+      <button class="btn ghost loglink" data-set="${esc(sn)}">History (${(f.n|0)})</button>
     </div>
+    ${histNote(f)}
     <div class="log" id="log-${esc(sn)}">${
       LOGS[sn] ? logHtml(LOGDATA[sn]) : ''}</div>`;
 }

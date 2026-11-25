@@ -140,6 +140,55 @@ def main() -> None:
     check("car 5 of 6 is a middle car", r6["car_type"], "AMT")
     check("trip_id kept for non-people reports", f._conn().execute("SELECT trip_id FROM reports WHERE id=?", (r6["id"],)).fetchone()[0], "T2")
 
+    # --- the History count must be reconcilable (the "number of reports on
+    #     the units doesn't match the reports" bug) ---
+    #
+    # `n` counts every kept row; `n_neg` counts OPEN VEHICLE FAULTS. They
+    # legitimately differ, but the UI showed `n` under the word "Reports"
+    # beside a badge driven by `n_neg`, so a unit whose only history was an
+    # expired people report advertised reports it then refused to display.
+    # A people report on a trip that is NOT in the live set has expired.
+    f.add_report("238", "ruffians", 2, behaviour="loud", trip_id="GONE")
+    s2 = f.summary(live_trips=set())          # nothing running: trip expired
+    e = s2["238"]
+    check("expired people report still counted in n", e["n"], 1)
+    check("expired people report is not a fault", e["n_neg"], 0)
+    check("expired people report is not live", e.get("n_people", 0), 0)
+    check("expired people report is nameable", e.get("n_expired"), 1)
+    # Same row, same DB, but the trip is running: live, not expired.
+    s3 = f.summary(live_trips={"GONE"})
+    check("live people report counted as live", s3["238"].get("n_people"), 1)
+    check("live people report not double-counted as expired",
+          s3["238"].get("n_expired", 0), 0)
+
+    # --- repeat offenders must mean OPEN FAULTS, not raw rows ---
+    # AM 238's only history is one expired ruffians report: zero faults, so it
+    # must not be named a repeat offender however many rows it accumulates.
+    f.add_report("238", "ruffians", 2, behaviour="loud", trip_id="GONE2")
+    st2 = f.stats(live_trips=set())
+    check("two expired people rows counted in n",
+          f.summary(live_trips=set())["238"]["n"], 2)
+    check("but no open faults", f.summary(live_trips=set())["238"]["n_neg"], 0)
+    check("so not a repeat offender",
+          [x for x in st2["repeat_offenders"] if x["set_no"] == 238], [])
+    # Praise is not a fault either.
+    f.add_report("1087", "praise", 1)
+    f.add_report("1087", "praise", 1)
+    st3 = f.stats(live_trips=set())
+    check("praise-only set is not a repeat offender",
+          [x for x in st3["repeat_offenders"] if x["set_no"] == 1087], [])
+    # The real offender is still reported, and on its fault count.
+    off = [x for x in st3["repeat_offenders"] if x["set_no"] == 701]
+    check("genuine repeat offender still listed", len(off), 1)
+    check("repeat offender counts faults not rows", off[0]["n"],
+          f.summary(live_trips=set())["701"]["n_neg"])
+
+    # --- /api/health must not pay for the fault maths ---
+    sh = f.stats(repeat=False)
+    check("health stats skip repeat offenders", "repeat_offenders" in sh, False)
+    check("health stats still carry the row count",
+          sh["reports"], f.stats(live_trips=set())["reports"])
+
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
 

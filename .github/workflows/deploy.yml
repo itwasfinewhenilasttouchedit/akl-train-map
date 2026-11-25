@@ -82,6 +82,11 @@ jobs:
           python src/test_feedback.py
           python src/test_consist_at.py
           python src/test_alerts.py
+          # Guards the popup's two report numbers against drifting apart again:
+          # the badge counts open faults, the History button counts every kept
+          # row, and any gap must be explained on screen. Extracts the real
+          # histNote() from index.html and runs it under node.
+          python src/test_histnote.py
           python src/test_trailing.py
           python src/test_order_latch.py
           python src/test_order_latch_e2e.py

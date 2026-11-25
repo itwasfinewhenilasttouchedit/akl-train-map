@@ -797,10 +797,17 @@ def summary(live_trips: set | None = None) -> dict:
         for r in c.execute(f"""
                 SELECT set_no, id, trip_id, occurred_at, created_at
                 FROM open_reports WHERE category IN ({_people_sql})"""):
+            s = out.get(str(r["set_no"]))
             if _people_expired(r["trip_id"], r["occurred_at"],
                                r["created_at"], live_trips):
+                # Counted, not discarded. `n` includes this row, so if the UI
+                # is to show a number a rider can reconcile ("history 2 =
+                # 1 open + 1 expired") the expired ones must be nameable.
+                # Without this the popup promised reports it then refused to
+                # badge, which read as the map being broken.
+                if s:
+                    s["n_expired"] = s.get("n_expired", 0) + 1
                 continue
-            s = out.get(str(r["set_no"]))
             if s:
                 s["n_people"] = s.get("n_people", 0) + 1
         # How many of this set's reports the riders have cleared. Shown as
@@ -859,18 +866,34 @@ def vote_stats() -> dict:
     return {"votes": v, "resolved": resolved}
 
 
-def stats() -> dict:
+def stats(live_trips: set[str] | None = None, repeat: bool = True) -> dict:
+    """Totals for the stats panel.
+
+    `repeat=False` skips the repeat-offender verdict, which needs a full
+    summary() pass. /api/health calls this on every container healthcheck and
+    only wants the row count, so it must not pay for the fault maths.
+    """
     with _conn() as c:
         tot = c.execute("SELECT COUNT(*) n FROM reports WHERE hidden=0").fetchone()["n"]
         sets = c.execute("SELECT COUNT(DISTINCT set_no) n FROM reports WHERE hidden=0").fetchone()["n"]
         cats = {r["category"]: r["n"] for r in c.execute(
             "SELECT category, COUNT(*) n FROM reports WHERE hidden=0 "
             "GROUP BY category ORDER BY n DESC")}
-        repeat = [dict(r) for r in c.execute(
-            "SELECT set_no, COUNT(*) n FROM reports WHERE hidden=0 "
-            "GROUP BY set_no HAVING n > 1 ORDER BY n DESC, set_no LIMIT 10")]
-    return {"reports": tot, "units": sets, "by_category": cats,
-            "repeat_offenders": repeat}
+    # "Repeat offender" is a claim about the VEHICLE, so it must count open
+    # faults, not raw rows. Keyed on raw `n` it listed sets whose only history
+    # was praise, cleared reports, or expired people reports -- AM 238 appeared
+    # as a repeat offender with two expired `ruffians` rows and zero faults.
+    # summary() already applies the journey-expiry and resolved rules, so the
+    # verdict is derived from it rather than reimplemented in SQL (where the
+    # live-trip check is not available).
+    out = {"reports": tot, "units": sets, "by_category": cats}
+    if repeat:
+        flags = summary(live_trips)
+        out["repeat_offenders"] = sorted(
+            ({"set_no": int(k), "n": v["n_neg"]}
+             for k, v in flags.items() if (v.get("n_neg") or 0) > 1),
+            key=lambda x: (-x["n"], x["set_no"]))[:10]
+    return out
 
 
 if __name__ == "__main__":
