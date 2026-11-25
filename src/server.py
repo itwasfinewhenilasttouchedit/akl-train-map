@@ -81,6 +81,7 @@ CACHE = Path(os.environ.get("TRAINS_CACHE")
 # to "actively misleading" fairly fast, and a machine that has been down
 # overnight should show the warming state rather than yesterday's rush hour.
 CACHE_MAX_AGE_S = 900
+HOLD_EMPTY_MAX_S = 1800   # keep last good map this long when the feed returns nothing
 
 # Latched 6-car front/rear orders. Persisted beside the cache (and so on the
 # volume in production): the order is derived only while a train MOVES, so
@@ -132,7 +133,17 @@ def _load_cache() -> None:
 async def poller() -> None:
     while True:
         try:
-            STATE["data"] = await live.collect()
+            fresh = await live.collect()
+            prev = STATE["data"]
+            # AT's feed sometimes answers 200 with no vehicles during an
+            # outage. That is a failed read, not "no trains running": keep the
+            # last good payload (its age_s tells the client how old it is)
+            # rather than blanking the map. Only hold it for HOLD_EMPTY_MAX_S;
+            # beyond that an empty map is the honest picture.
+            if (not fresh.get("trains") and prev and prev.get("trains")
+                    and int(time.time()) - int(prev.get("ts", 0)) < HOLD_EMPTY_MAX_S):
+                raise RuntimeError("feed returned no vehicles; showing last good positions")
+            STATE["data"] = fresh
             STATE["fetched"] = int(time.time())
             STATE["error"] = None
             await asyncio.get_running_loop().run_in_executor(None, _annotate_consists)
