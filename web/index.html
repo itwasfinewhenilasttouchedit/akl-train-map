@@ -650,10 +650,17 @@
      warning bell #1b1b1b on #d9a21b = 7.49
      drawer body  #cfd8e3 on #232c38 = 9.80 */
 #alertbell {
-  /* Desktop: to the right of the HUD (x=12..~342 after the title widening).
+  /* Desktop: immediately right of the HUD, which measures x=12..374 at every
+     width above the 641px breakpoint (min-width and max-width are both 330px
+     there, plus 14px padding and 1px border each side = 362px wide).
+     So the bell starts at 386px, a 12px gap matching the 12px top/left
+     rhythm. Do NOT eyeball this number: it was left:358px for a while, which
+     overlapped the HUD by 16px after the title widened the panel, and the
+     stale comment still claimed the HUD ended at ~342. `desktop bell clear of
+     HUD` in src/shot_ui4.py measures the real boxes and is the guard.
      Phone override is in the media query below — the HUD goes full-width
      (x=8..382) there, so the bell cannot share its row. */
-  position:absolute; z-index:650; top:12px; left:358px;
+  position:absolute; z-index:650; top:12px; left:386px;
   width:44px; height:44px; padding:0;
   display:flex; align-items:center; justify-content:center;
   border:1px solid rgba(255,255,255,.22); border-radius:10px;

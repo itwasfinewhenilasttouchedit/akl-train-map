@@ -1,31 +1,52 @@
-# Build, gate, and deploy the Auckland train map.
+# Build and gate the Auckland train map.
 #
-# Deploys to the SINGLE existing Fly app (akl-trains). There is deliberately no
-# separate dev app: the Fly account has no card, so a second always-on machine
-# is not free, and this app must never scale to zero (it polls AT every 20s on
-# behalf of every visitor).
+# This workflow does NOT deploy. Production is the self-hosted instance at
+# trains.hoki.co.nz, which deploys pull-based: a systemd timer on the host runs
+# src/deploy_pull.sh every ~5 minutes, which fetches origin/main, builds,
+# smoke-tests a candidate on a scratch port, promotes it, and rolls back on any
+# failure. The push IS the deploy; there is nothing to trigger from here.
 #
-# The gates run BEFORE the deploy step and the job is sequential, so a failing
-# test blocks the ship rather than being reported alongside it. That ordering
-# is the entire point of this file -- every check here has caught a real defect
-# that was invisible in the source.
-name: deploy
+# The Fly app (akl-trains) was retired on 2026-11-26. Its trial ended and the
+# app went to `suspended`: it now serves NOTHING -- TCP connects to Fly's edge
+# and TLS then fails with no peer certificate, from every network tested. Note
+# that this also killed the old 301 from akl-trains.fly.dev to the canonical
+# host, because that redirect came from CANONICAL_HOST inside the app, not from
+# Fly's router. Any stale inbound link to the fly.dev name is now dead rather
+# than redirected. That is acceptable: the fly.dev host was never advertised
+# and the canonical host is in sitemap.xml and every rel=canonical tag.
+#
+# Fly deploys had in fact already stopped before the suspension -- the render
+# gate below was failing, and the job is sequential, so the deploy step was
+# being SKIPPED. Worth remembering when reading old runs: a skipped step and a
+# successful one are both "not failed" in the Actions API, and skimming a run
+# summary will show a deploy that never happened as if it were fine.
+#
+# One lesson kept deliberately, because it cost real debugging time:
+# deploy_pull.sh does not run the unit suite, so a gate that exists only here
+# is invisible in production -- which is why a CI-only gate referencing an
+# untracked test file sat red for days without anyone noticing.
+#
+# Gates are sequential and ordered cheapest-first, so a failure stops the run
+# early. Every check here has caught a real defect that was invisible in the
+# source.
+name: gates
 
 on:
   push:
     branches: [main]
-  # Hand-run from the Actions tab, for redeploying without a code change.
+  # Hand-run from the Actions tab, for re-gating without a code change.
   workflow_dispatch:
 
-# Serialise deploys. Two overlapping `fly deploy` runs against one machine race
-# for the lease and the loser fails confusingly; `cancel-in-progress: false`
-# because killing a half-finished deploy is worse than queueing behind it.
+# Serialise runs. Each one builds Docker images and binds container ports on
+# the runner, so overlapping runs collide on the fixed `akl-ci` / `shotci`
+# container names. `cancel-in-progress: false` because a half-torn-down rig
+# leaves stray containers that fail the NEXT run confusingly.
 concurrency:
-  group: deploy-akl-trains
+  group: gates-akl-trains
   cancel-in-progress: false
 
 jobs:
-  gate-and-deploy:
+  gate:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -94,9 +115,11 @@ jobs:
           python src/test_trailing.py
           python src/test_order_latch.py
           python src/test_order_latch_e2e.py
-          # Guards the CANONICAL_HOST redirect. The /api/health exemption is
-          # load-bearing: Fly's health check does not follow redirects, so a
-          # 301 there makes the platform destroy this very machine.
+          # Guards the CANONICAL_HOST redirect and its /api/ exemption. Kept
+          # after Fly's retirement: the exemption still matters because the
+          # self-hosted container's own Docker healthcheck hits /api/health and
+          # does not follow redirects, and because CANONICAL_HOST is still set
+          # in any environment fronting this app under a second hostname.
           ARCHIVE_DB=off python src/test_canonical.py
           # Guards the access log. It handles client IP addresses and runs on
           # every request, so the gates that matter are: a bad log path must
@@ -105,8 +128,10 @@ jobs:
           ARCHIVE_DB=off python src/test_accesslog.py
 
       - name: Build image locally
-        # Build before touching Fly. A Dockerfile error should fail here, not
-        # halfway through a remote deploy against the live machine.
+        # A Dockerfile error must surface here, not on the production host.
+        # deploy_pull.sh builds the real image itself and rolls back on
+        # failure, but a broken Dockerfile reaching it burns a deploy cycle
+        # and leaves the timer retrying the same break every 5 minutes.
         run: docker build -t akl-trains:ci .
 
       - name: Render suite against the built image
@@ -161,45 +186,3 @@ jobs:
         if: always()
         run: docker rm -f akl-ci shotci || true
 
-      # ---- everything above must pass before anything below runs ----
-
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Deploy to Fly
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: flyctl deploy --app akl-trains --now --remote-only
-
-      - name: Verify the deploy actually landed
-        # `fly deploy` exiting 0 means the machine started, not that the new
-        # code is being served.
-        #
-        # Fly no longer serves the app -- it 301s to the canonical self-hosted
-        # host (see CANONICAL_HOST in fly.toml). So the old asset-stamp scrape
-        # of the live HTML cannot work: there is no HTML, and grep returned an
-        # empty string that failed the gate on a deploy that had in fact
-        # succeeded. Assert the two things that must now be true instead.
-        run: |
-          sleep 15
-          # 1. The root redirects, and points at the canonical host.
-          CODE=$(curl -sS -o /dev/null -w '%{http_code}' https://akl-trains.fly.dev/)
-          LOC=$(curl -sS -o /dev/null -w '%{redirect_url}' https://akl-trains.fly.dev/)
-          echo "root: $CODE -> $LOC"
-          test "$CODE" = "301"
-          WANT=$(grep -oE 'CANONICAL_HOST *= *"[^"]+"' fly.toml \
-                 | grep -oE '"[^"]+"' | tr -d '"')
-          echo "expected canonical host: $WANT"
-          case "$LOC" in
-            "https://$WANT/") echo "redirect target correct" ;;
-            *) echo "redirect points somewhere unexpected"; exit 1 ;;
-          esac
-          # 2. /api/* is NOT redirected and the machine is genuinely healthy.
-          # This is the guard that keeps Fly's own health check working: a 301
-          # here makes the platform destroy the machine.
-          HCODE=$(curl -sS -o /dev/null -w '%{http_code}' \
-                  https://akl-trains.fly.dev/api/health)
-          echo "api/health: $HCODE"
-          test "$HCODE" = "200"
-          curl -sS https://akl-trains.fly.dev/api/trains \
-            | python -c "import json,sys; d=json.load(sys.stdin); \
-                print('trains', d.get('count'), '| error', d.get('error'))"
