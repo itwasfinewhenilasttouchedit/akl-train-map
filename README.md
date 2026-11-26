@@ -33,6 +33,11 @@ Thereafter it starts in a second; geometry auto-rebuilds weekly.
 - Line colours and filters: Eastern/Western, Southern/Onehunga loop, Onehunga, Huia.
 - All 102 rail stations with name tooltips.
 - A next-arrivals list, sorted by ETA; click a row to fly to that train.
+- **Station departure boards.** Tap a station for the next eight departures
+  (live from AT where available, timetable otherwise, and it says which). Tap a
+  departure for the service: platform, destination, the unit when AT has named
+  one, that unit's open reports, and any service alert in force for the line or
+  station. Reporting is a button there, not what a tap means.
 - Per-train popup: destination, from → to, ETA, platform, delay, speed,
   percentage of the way between stops.
 
