@@ -87,6 +87,10 @@ jobs:
           # row, and any gap must be explained on screen. Extracts the real
           # histNote() from index.html and runs it under node.
           python src/test_histnote.py
+          # Every GET route must also answer HEAD. FastAPI's @app.get does not
+          # add HEAD (Starlette's own Route does), and a crawler HEADing
+          # /sitemap.xml got a 405 in production while GET returned 200.
+          ARCHIVE_DB=off python src/test_head.py
           python src/test_trailing.py
           python src/test_order_latch.py
           python src/test_order_latch_e2e.py

@@ -21,6 +21,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, Response
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1119,6 +1120,34 @@ async def sitemap_xml() -> Response:
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")
+
+
+# --------------------------------------------------------------- HEAD support
+# Every GET route must also answer HEAD. Starlette's own Route adds HEAD to a
+# GET automatically; FastAPI's @app.get does NOT -- it registers methods={"GET"}
+# verbatim, so a HEAD request fell through to Starlette's 405 handler.
+#
+# This is not pedantry about the HTTP spec. Measured in the access log on
+# 2026-11-26: a crawler sent `HEAD /sitemap.xml` and got 405 while
+# `GET /sitemap.xml` returned 200. Link checkers, uptime monitors and several
+# crawlers probe with HEAD before committing to a GET, and a 405 reads as
+# "this route does not exist". With hoki.co.nz still being indexed, that is a
+# self-inflicted obstacle on the two routes search engines care about most.
+#
+# Patching the route table (rather than adding methods=["GET", "HEAD"] to
+# twenty decorators) means a new @app.get added later cannot forget to do it.
+# Starlette drops the body for HEAD itself, so handlers need no changes and
+# content-type/content-length stay correct. POST/DELETE-only routes are left
+# alone and still return 405, which is the honest answer for them. StaticFiles
+# already handled HEAD before this.
+_head_added = 0
+for _route in app.routes:
+    if isinstance(_route, APIRoute) and "GET" in _route.methods \
+            and "HEAD" not in _route.methods:
+        _route.methods = set(_route.methods) | {"HEAD"}
+        _head_added += 1
+LOG.info("HEAD enabled on %d GET route(s)", _head_added)
+
 
 
 # --------------------------------------------------------------- canonical host
