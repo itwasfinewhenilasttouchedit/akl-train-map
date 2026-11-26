@@ -8,12 +8,22 @@
 #
 # The Fly app (akl-trains) was retired on 2026-11-26. Its trial ended and the
 # app went to `suspended`: it now serves NOTHING -- TCP connects to Fly's edge
-# and TLS then fails with no peer certificate, from every network tested. Note
-# that this also killed the old 301 from akl-trains.fly.dev to the canonical
-# host, because that redirect came from CANONICAL_HOST inside the app, not from
-# Fly's router. Any stale inbound link to the fly.dev name is now dead rather
-# than redirected. That is acceptable: the fly.dev host was never advertised
-# and the canonical host is in sitemap.xml and every rel=canonical tag.
+# and TLS then fails with no peer certificate, from every network tested. That
+# also killed the 301 from akl-trains.fly.dev to the canonical host, so any
+# stale inbound link to the fly.dev name is now dead rather than redirected.
+# Acceptable: the fly.dev host was never advertised, and the canonical host is
+# in sitemap.xml and every rel=canonical tag.
+#
+# Note what the removed deploy step would have done if it had ever run. Since
+# 2026-11-24 the Fly app was NOT this Python app -- the machine was destroyed
+# and replaced with a 256MB Caddy container serving a plain 301, built from
+# deploy/fly-redirect/ (untracked, its own fly.toml). This workflow deployed
+# the ROOT fly.toml, so a green run would have clobbered that redirect with
+# the full polling app and silently restarted AT quota spend from a second
+# instance. The gate failure that kept skipping the deploy was load-bearing by
+# accident. CANONICAL_HOST in the root fly.toml is a leftover from before that
+# swap; it is still exercised by test_canonical.py and still read at runtime,
+# so it stays, but it was not what served the fly.dev redirect.
 #
 # Fly deploys had in fact already stopped before the suspension -- the render
 # gate below was failing, and the job is sequential, so the deploy step was
