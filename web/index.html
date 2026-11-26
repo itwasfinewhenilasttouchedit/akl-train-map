@@ -25,7 +25,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=d4abc2a14c">
+<link rel="stylesheet" href="/static/pixel.css?v=6f5baea435">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -229,6 +229,37 @@
   #st { width:340px; max-width:92vw; padding:16px 18px; max-height:88vh; overflow:auto; }
   #st h2 { margin:0 0 3px; font-size:15px; }
   #st .hint { color:var(--muted); font-size:11px; margin-bottom:11px; }
+  /* ---- service detail, opened from a board row ----
+     Sits ABOVE the board (z 950) rather than replacing it, so closing it
+     returns the rider to the departures they were reading rather than to the
+     map. The board row used to jump straight to the report form, which asked
+     a rider looking up their train to file a complaint about it. */
+  #svwrap { position:absolute; inset:0; z-index:950; background:rgba(5,8,12,.62);
+            display:none; align-items:center; justify-content:center; }
+  #svwrap.on { display:flex; }
+  #sv { width:340px; max-width:92vw; padding:16px 18px; max-height:88vh; overflow:auto; }
+  #sv h2 { margin:0 0 3px; font-size:15px; }
+  #sv .hint { color:var(--muted); font-size:11px; margin-bottom:11px; }
+  /* A board row is now the control that opens the service, so it has to look
+     and behave pressable and be reachable by Tab. role=button + tabindex
+     rather than a real <button>, because the set chip inside it is itself a
+     button and nesting one button in another is invalid. */
+  .brow[role="button"] { cursor:pointer; }
+  .brow[role="button"]:hover { background:#161d27; }
+  .brow[role="button"]:focus-visible { outline:2px solid var(--accent);
+                                       outline-offset:-2px; }
+  .svfact { display:flex; justify-content:space-between; gap:10px; font-size:12px;
+            padding:5px 0; border-bottom:1px solid var(--line); }
+  .svfact > span:first-child { color:var(--muted); }
+  /* A warning on a service is the thing the rider most needs and must not be
+     styled as a footnote. Upcoming works are deliberately cooler than in-force
+     disruption, matching the alert drawer. */
+  .svalert { margin-top:8px; border-radius:6px; padding:6px 8px; font-size:11.5px;
+             line-height:1.45; background:#45321d; color:#f0a35e; }
+  .svalert.sev-severe { background:#5a2020; color:#ffc0b8; }
+  .svalert.up { background:#1b2430; color:#9ec5e8; }
+  .svalert b { display:block; }
+  .svnone { margin-top:8px; font-size:11.5px; color:var(--muted); }
   #jpwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
             display:none; align-items:center; justify-content:center; }
   #jpwrap.on { display:flex; }
@@ -955,6 +986,22 @@
   </div>
 </div>
 
+<!-- Service detail. Opened by tapping a ROW on the departure board. Tapping a
+     row used to open the report form, which is the answer to "this train was
+     bad" — not to "tell me about this train", which is why someone taps a row
+     they are about to board. Reporting is still here, as a button. -->
+<div id="svwrap">
+  <div id="sv" class="panel">
+    <h2 id="svtitle">Service</h2>
+    <div class="hint" id="svsub"></div>
+    <div id="svbody"></div>
+    <div class="acts">
+      <button class="btn ghost" id="svreport">Report this train</button>
+      <button class="btn" id="svclose">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Report form. Hidden until a train is picked, so a report is always
      attached to a specific unit rather than floating free. -->
 <div id="fbwrap">
@@ -1445,9 +1492,9 @@ function openChooser(hits, x, y) {
 // map.on('click') station probe and the old capture listener, so there is one
 // place that decides what a click means.
 document.getElementById('map').addEventListener('click', (ev) => {
-  if (document.querySelector('#stwrap.on, #fbwrap.on, #jpwrap.on')) return;
+  if (document.querySelector('#stwrap.on, #fbwrap.on, #jpwrap.on, #svwrap.on')) return;
   if (ev.target.closest(
-      '.leaflet-control, #hud, #stwrap, #fbwrap, #jpwrap, #pickwrap, ' +
+      '.leaflet-control, #hud, #stwrap, #svwrap, #fbwrap, #jpwrap, #pickwrap, ' +
       '#favbar, #alertdrawer, #alertbell, #skinbtn')) return;
   // Inside a popup, let the popup's own buttons work.
   if (ev.target.closest('.leaflet-popup')) return;
@@ -2258,7 +2305,7 @@ function goToSet(sn) {
     if (setNo(m._t && m._t.unit) === sn) {
       // Close any overlay first: flying the map underneath an open panel looks
       // like nothing happened.
-      ['fbwrap','jpwrap','stwrap'].forEach(w => {
+      ['fbwrap','jpwrap','stwrap','svwrap'].forEach(w => {
         const e = document.getElementById(w); if (e) e.classList.remove('on');
       });
       map.setView(m.getLatLng(), 14); m.openPopup(); return true;
@@ -2879,7 +2926,11 @@ async function loadBoard() {
       res.innerHTML = '<div class="muted">Nothing scheduled in the next couple of hours.</div>';
       return;
     }
-    res.innerHTML = d.departures.map(x => {
+    // Cache the rows: the service panel is built from the departure object,
+    // not re-fetched, so opening it cannot disagree with the board behind it.
+    BOARD_DEPS = d.departures;
+    BOARD_SOURCE = d.source;
+    res.innerHTML = d.departures.map((x, i) => {
       const r = x.risk || {};
       // The same three honest states as the planner. A set number appears only
       // when a feed actually names one.
@@ -2925,7 +2976,9 @@ async function loadBoard() {
       // replaced rather than struck out: "CANCELLED ... 4m" invites someone to
       // turn up anyway.
       if (x.cancelled) {
-        return `<div class="brow cancelled">
+        return `<div class="brow cancelled" role="button" tabindex="0"
+             data-dep="${i}"
+             aria-label="${esc(x.dep)} to ${esc(x.dest || '')}, cancelled — open service">
           <span class="btime dtime">${esc(x.dep)}</span>
           <span class="bsched"></span>
           <span class="bdest">${esc(x.dest || '')}</span>
@@ -2937,7 +2990,8 @@ async function loadBoard() {
       const skip = (x.skipped_stops && x.skipped_stops.length)
         ? `<div class="muted" style="grid-column:1/-1;font-size:11px">
              Not stopping at ${esc(x.skipped_stops.join(', '))}</div>` : '';
-      return `<div class="brow">
+      return `<div class="brow" role="button" tabindex="0" data-dep="${i}"
+        aria-label="${esc(x.dep)} to ${esc(x.dest || '')}, ${mins} minutes — open service">
         <span class="btime">${liveTag}${esc(x.dep)}</span>
         ${slip}
         <span class="bdest">${esc(x.dest || '')}</span>
@@ -2963,13 +3017,160 @@ function closeBoard() {
   document.getElementById('stwrap').classList.remove('on');
   BOARD = null;
 }
+
+// ------------------------------------------------------- service detail
+//
+// A board row answers "when", and a rider about to board wants "what is this
+// train, and is anything wrong with it". Tapping a row used to open the REPORT
+// FORM — the answer to a question nobody standing on a platform is asking, and
+// a confusing one, because it looked like the map had decided the train was
+// bad. The report button is still here, as a button.
+//
+// Built from the cached departure object rather than a fresh fetch, so the
+// panel can never contradict the row that opened it. Alerts come from
+// LAST_ALERTS, already polled for the bell.
+let BOARD_DEPS = [];      // last rendered departures, indexed by data-dep
+let BOARD_SOURCE = null;
+let SVDEP = null;         // departure currently shown
+
+// Which alerts touch this service: its route, or any station on the board's
+// own station. Matched on the SAME ids the server used, never on alert text.
+function alertsForService(x, station) {
+  const d = LAST_ALERTS || {};
+  const route = String(x.route || '');
+  const out = [];
+  for (const [bucket, up] of [['now', false], ['upcoming', true]]) {
+    for (const a of (d[bucket] || [])) {
+      // `routes` carries AT's full ids (S-C-201); the board carries the short
+      // name (S-C). Prefix-match on the short name rather than inventing a
+      // mapping table that would rot the next time AT renumbers a line.
+      const hitRoute = route && (a.routes || []).some(
+        r => String(r) === route || String(r).startsWith(route + '-'));
+      const hitStop = station && (a.stations || []).indexOf(station) !== -1;
+      if (hitRoute || hitStop) out.push({ a, up });
+    }
+  }
+  return out;
+}
+
+function openService(i) {
+  const x = BOARD_DEPS[i];
+  if (!x) return;
+  SVDEP = x;
+  const r = x.risk || {};
+  const sn = r.set_no ? String(r.set_no) : null;
+  document.getElementById('svtitle').textContent =
+    (x.dep || '') + ' \u2192 ' + (x.dest || 'unknown');
+  document.getElementById('svsub').textContent =
+    (BOARD || '') + (x.route ? ' \u00b7 ' + x.route : '') +
+    (BOARD_SOURCE === 'at-live' ? ' \u00b7 live from AT' : ' \u00b7 timetable');
+
+  const mins = (x.eta_s != null) ? Math.max(0, Math.round(x.eta_s / 60))
+                                 : (x.mins_away | 0);
+  const fact = (k, v) => v == null || v === ''
+    ? '' : `<div class="svfact"><span>${esc(k)}</span><span>${esc(String(v))}</span></div>`;
+
+  let body = '';
+  if (x.cancelled) {
+    body += '<div class="svalert sev-severe"><b>Cancelled</b>'
+          + 'AT has cancelled this service. Do not wait for it.</div>';
+  }
+  body += fact('Departs', x.dep + (x.live ? ' (tracked)' : ' (timetable)'));
+  if (x.scheduled && x.scheduled !== x.dep) body += fact('Scheduled', x.scheduled);
+  if (!x.cancelled) body += fact('In', mins + ' min');
+  body += fact('Platform', x.platform);
+  body += fact('Destination', x.dest);
+  body += fact('Train', sn ? 'AM ' + sn : null);
+  if (!sn) {
+    body += '<div class="svnone">AT has not named a train for this service '
+          + 'yet, so we can\u2019t tell you which unit it will be.</div>';
+  }
+  if (x.skipped_stops && x.skipped_stops.length) {
+    body += `<div class="svalert"><b>Not stopping everywhere</b>
+             Runs past ${esc(x.skipped_stops.join(', '))}.</div>`;
+  }
+  // The unit's own history, when we know the unit. Same wording and thresholds
+  // as the map popup — a board and a popup must never disagree about a train.
+  if (sn) {
+    const f = FB[sn] || null;
+    if (r.state === 'known') {
+      body += `<div class="svalert"><b>${esc(
+        (peeStatus('AM ' + sn) || {}).label || 'Reported')}</b>${
+        esc(r.why || '')}${r.car_label ? ' \u2014 worst: ' + esc(r.car_label) : ''}</div>`;
+    } else if (f && hasFault(f)) {
+      const n = f.n_neg != null ? f.n_neg : f.n;
+      body += `<div class="svalert"><b>${n} open report${n > 1 ? 's' : ''}</b>
+               for AM ${esc(sn)}.</div>`;
+    } else {
+      body += '<div class="svnone">No open reports for this train.</div>';
+    }
+  }
+  // Service alerts in force for this route or station. THE thing a rider needs
+  // before boarding, and until now reachable only via the bell.
+  const ax = alertsForService(x, BOARD);
+  if (ax.length) {
+    body += ax.map(({ a, up }) => {
+      const sev = String(a.severity || 'INFO').toLowerCase();
+      return `<div class="svalert ${up ? 'up' : 'sev-' + esc(sev)}">
+        <b>${up ? 'Upcoming: ' : ''}${esc(a.header || '')}</b>
+        ${esc(a.description || '')}</div>`;
+    }).join('');
+  } else {
+    body += '<div class="svnone">No service alerts for this line or station.</div>';
+  }
+  // Every value above went through esc(); the only markup is ours.
+  document.getElementById('svbody').innerHTML = body;
+  // No unit, nothing to report against — hide rather than offer a dead button.
+  // display, not the `hidden` attribute: .btn sets its own display, which
+  // overrides [hidden]'s UA rule, so the button stayed visible and clickable
+  // on every unassigned service. Caught by src/shot_service.py.
+  document.getElementById('svreport').style.display = sn ? '' : 'none';
+  document.getElementById('svwrap').classList.add('on');
+  document.getElementById('sv').setAttribute('tabindex', '-1');
+  document.getElementById('sv').focus({ preventScroll: true });
+}
+
+function closeService() {
+  document.getElementById('svwrap').classList.remove('on');
+  SVDEP = null;
+}
+document.getElementById('svclose').onclick = closeService;
+document.getElementById('svwrap').onclick = e => {
+  if (e.target.id === 'svwrap') closeService();
+};
+document.getElementById('svreport').onclick = () => {
+  const r = (SVDEP && SVDEP.risk) || {};
+  const unit = r.unit || (r.set_no ? 'AM ' + r.set_no : null);
+  if (!unit) return;
+  closeService();
+  openForm(unit);
+};
+// Delegated: the board rebuilds its rows every 20s, so per-row handlers would
+// be lost. The set chip inside a row keeps its own .setlink behaviour, so an
+// explicit tap on "AM 701" still flies to that train.
+document.getElementById('stres').addEventListener('click', e => {
+  if (e.target.closest('.setlink')) return;
+  const row = e.target.closest('.brow[data-dep]');
+  if (row) openService(row.dataset.dep | 0);
+});
+document.getElementById('stres').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (e.target.closest('.setlink')) return;
+  const row = e.target.closest('.brow[data-dep]');
+  if (row) { e.preventDefault(); openService(row.dataset.dep | 0); }
+});
 document.getElementById('stclose').onclick = closeBoard;
 document.getElementById('stwrap').onclick = e => {
   if (e.target.id === 'stwrap') closeBoard();
 };
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('stwrap').classList.contains('on'))
-    closeBoard();
+  if (e.key !== 'Escape') return;
+  // Innermost first: Esc on an open service must return to the board, not
+  // dismiss both and dump the rider back on the map.
+  if (document.getElementById('svwrap').classList.contains('on')) {
+    closeService(); return;
+  }
+  if (document.getElementById('stwrap').classList.contains('on')) closeBoard();
 });
 // An open board goes stale as trains move and get assigned, so refresh it on
 // the trains cadence rather than leaving a frozen timetable on screen.

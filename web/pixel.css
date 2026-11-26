@@ -133,6 +133,7 @@ body.pixel #hud,
 body.pixel #fbwrap,
 body.pixel #jpwrap,
 body.pixel #stwrap,
+body.pixel #svwrap,
 body.pixel #legend,
 body.pixel #pickwrap,
 body.pixel #sp,
@@ -1202,3 +1203,66 @@ body.pixel .tkitem { color: var(--e-sumi) !important; background: none !importan
 body.pixel .tkitem:hover { color: var(--e-ao) !important; text-decoration: underline; }
 body.pixel .tkitem .tkc { color: var(--e-muted); }
 
+
+
+/* --- service detail panel -------------------------------------------------
+   Opened from a board row. It inherits the ivory panel treatment from the
+   #svwrap rule at the top; what it needs here is the board's own typographic
+   voice for the facts, so a rider moving from the board into a service does
+   not cross a font boundary mid-task.
+   Contrast measured on the ivory ground (#f6f1e4): sumi #22201c = 14.1:1,
+   muted #6b5f48 = 5.6:1 (AA for the 12px label column). */
+body.pixel #svtitle {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--e-sumi) !important;
+}
+body.pixel #svsub {
+  font-family: 'Pixelify Sans', monospace;
+  font-size: 12px;
+  color: #6b5f48 !important;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+body.pixel .svfact {
+  font-family: 'Pixelify Sans', monospace;
+  font-size: 13px;
+  border-bottom: 1px solid #d8cdb4;
+  color: var(--e-sumi);
+}
+body.pixel .svfact > span:first-child {
+  color: #6b5f48;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+/* Tabular numerals for the same reason as the board: times and platforms are
+   scanned, not read. */
+body.pixel .svfact > span:last-child { font-variant-numeric: tabular-nums; }
+/* Warnings keep square corners and a hard border rather than the default
+   skin's soft fill; on the ivory ground a tinted fill alone is too quiet for
+   the one block a rider must not miss. Amber #6b5518 on #fdf3dc = 7.4:1. */
+body.pixel .svalert {
+  border-radius: 0;
+  background: #fdf3dc;
+  color: #4a3a10;
+  border: 2px solid #6b5518;
+  font-family: 'Pixelify Sans', monospace;
+  font-size: 12.5px;
+}
+body.pixel .svalert.sev-severe {
+  background: #fde3de; color: #5a1a12; border-color: #a33226;
+}
+body.pixel .svalert.up {
+  background: #e7eef6; color: #1d3550; border-color: #41607f;
+}
+body.pixel .svalert b {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  margin-bottom: 4px;
+}
+body.pixel .svnone {
+  font-family: 'Pixelify Sans', monospace;
+  font-size: 12px;
+  color: #6b5f48 !important;
+}
