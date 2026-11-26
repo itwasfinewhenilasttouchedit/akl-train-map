@@ -1970,6 +1970,48 @@ function peeHtml(unit) {
   return p ? `<span class="pee ${p.cls}">${esc(p.label)}</span>` : '';
 }
 
+// THE OTHER HALF OF A 6-CAR.
+//
+// Reports are keyed on the set, but a rider boards a SERVICE. When two sets
+// are coupled, AT names only one of them against the trip — so AM 593 coupled
+// to AM 851 showed a clean panel while 851's severe report sat one carriage
+// away, through an open gangway, on the train the rider was about to get on.
+// The board flagged it under 851 and the service panel did not, which is the
+// map contradicting itself.
+//
+// This returns the partner's summary when the partner — not this set — is the
+// one with reports. Deliberately NOT merged into flagFor(): the two sets stay
+// distinct everywhere (the diagram shades the right carriages, the report form
+// still files against the set the rider names), and a warning that says "the
+// other half" is honest in a way that silently inheriting a fault is not.
+function partnerFlag(unit) {
+  const sn = setNo(unit);
+  if (!sn) return null;
+  const cp = COUPLES[String(sn)];
+  const ps = cp && cp.partner ? String(cp.partner) : null;
+  if (!ps || (cp.consist | 0) !== 6) return null;
+  const pf = FB[ps] || null;
+  if (!pf || !hasFault(pf)) return null;
+  // position is THIS set's half, so the partner occupies the other one. Only
+  // claim carriages when the order is actually known.
+  const pos = (cp.position === 'front') ? 'rear'
+            : (cp.position === 'rear') ? 'front' : null;
+  return { set: ps, flag: pf, pos,
+           cars: pos === 'front' ? [1, 2, 3] : pos === 'rear' ? [4, 5, 6] : null };
+}
+
+// One sentence, used by the popup and the service panel so they cannot drift.
+function partnerWarnText(pw) {
+  if (!pw) return '';
+  const st = peeStatus('AM ' + pw.set);
+  const n = pw.flag.n_neg != null ? pw.flag.n_neg : pw.flag.n;
+  const what = st ? st.label.toLowerCase()
+                  : (n === 1 ? '1 open report' : n + ' open reports');
+  const where = pw.cars ? `cars ${pw.cars[0]}\u2013${pw.cars[2]}` : 'the other half';
+  return `Coupled to AM ${pw.set} (${where}), which has ${what}. `
+       + 'This is one 6-car train, so you can walk between them.';
+}
+
 // Arrivals rows are narrow; a full "suspected pee train" label would push the
 // ETA off the edge on a 390px phone. The glyph carries the warning, the popup
 // carries the words. title= keeps it accessible rather than decorative.
@@ -2054,7 +2096,11 @@ function trainDiagram(unit) {
     : (cp.position === 'front' ? [1, 2, 3] : [4, 5, 6]);
 
   const variant = document.body.classList.contains('pixel') ? 'pixel' : 'smooth';
-  const worst = Math.max(1, ...Object.values(cars).map(v => v | 0));
+  // The coupled half's per-car counts, so its reported carriages shade too.
+  const pf = (ordered && cp.partner && FB[String(cp.partner)]) || null;
+  const pcars = (pf && pf.cars) || {};
+  const worst = Math.max(1, ...Object.values(cars).map(v => v | 0),
+                            ...Object.values(pcars).map(v => v | 0));
 
   let out = '';
   for (let i = 1; i <= n; i++) {
@@ -2067,20 +2113,27 @@ function trainDiagram(unit) {
     const isMine = mine.indexOf(i) !== -1;
     // A report's car number is relative to its own set, so on the rear half
     // car 4 absolute is car 1 of this set.
-    const rel = isMine ? (i - mine[0] + 1) : null;
-    const cnt = (isMine && rel) ? (cars[String(rel)] | 0) : 0;
+    const rel = isMine ? (i - mine[0] + 1) : (i - (mine[0] === 1 ? 4 : 1) + 1);
+    // The PARTNER's reported carriages get shaded too. The rider is boarding
+    // one 6-car train; drawing three clean carriages next to three reported
+    // ones, with only the clean trio shaded, actively misleads about where to
+    // sit. Partner car counts are read from its own FB entry, relative to its
+    // own set, which is why `rel` is computed for both halves.
+    const cnt = isMine ? (rel ? (cars[String(rel)] | 0) : 0)
+                       : (pcars[String(rel)] | 0);
     const lvl = cnt === 0 ? 0 : (cnt >= worst && worst > 0 ? 2 : 1);
     out += `<div class="dcar${isMine ? '' : ' other'}${cnt ? ' bad lvl' + lvl : ''}"
        title="${isMine ? `Car ${rel} of 3 (AM ${esc(String(sn))})${
           cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ' \u2014 no reports'}`
-        : `Car ${i} \u2014 AM ${esc(String(cp && cp.partner || '?'))}`}">
+        : `Car ${rel} of 3 (AM ${esc(String(cp && cp.partner || '?'))})${
+          cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ''}`}">
        ${carSvg(cabEnd, variant, false)}
        <span class="dnum">${i}</span>
        ${cnt ? `<span class="dflag" aria-hidden="true">${cnt}</span>` : ''}
      </div>`;
   }
 
-  const anyBad = Object.keys(cars).length > 0;
+  const anyBad = Object.keys(cars).length > 0 || Object.keys(pcars).length > 0;
   const six_unk = (f.n_sixcar | 0);
   return `<div class="tdiag">
     <div class="dcars" role="img"
@@ -2120,6 +2173,12 @@ function reportBlock(unit) {
              ? `<span class="inf" title="Front/rear is estimated from each half&rsquo;s position.">i</span>`
              : `<span class="inf" title="Car count and set numbers from Auckland Transport.">i</span>`)
          : `<span class="inf" title="Inferred from train positions, not published by AT">?</span>`}</div>` : ''}
+    ${/* The coupled half's own reports. A 6-car is ONE train with an open
+          gangway, so a rider standing on the platform needs this even though
+          the report is filed against the other set. See partnerFlag(). */
+      (() => { const pw = partnerFlag(unit); return pw
+        ? `<div class="avoid"><b>Other half:</b> ${esc(partnerWarnText(pw))}</div>`
+        : ''; })()}
     ${/* The diagram above shades the offending carriage, so repeating
           "Most reports: Car 2 of 3" underneath is the same fact twice. Keep
           the sentence ONLY when there is no per-car breakdown to draw. */
@@ -3093,17 +3152,36 @@ function openService(i) {
   // as the map popup — a board and a popup must never disagree about a train.
   if (sn) {
     const f = FB[sn] || null;
+    // The partner's reports matter as much as this set's: a 6-car is one train
+    // with an open gangway. See partnerFlag().
+    const pw = partnerFlag('AM ' + sn);
+    let said = false;
     if (r.state === 'known') {
       body += `<div class="svalert"><b>${esc(
         (peeStatus('AM ' + sn) || {}).label || 'Reported')}</b>${
         esc(r.why || '')}${r.car_label ? ' \u2014 worst: ' + esc(r.car_label) : ''}</div>`;
+      said = true;
     } else if (f && hasFault(f)) {
+      // `risk` only ever reaches state 'known' for a SMELL fault (see
+      // attach_risk in src/journey.py), so a set with any other open report
+      // arrives here as 'no-data'. FB is the honest source for "this unit has
+      // a report", and it is what the map marker already warns on.
       const n = f.n_neg != null ? f.n_neg : f.n;
-      body += `<div class="svalert"><b>${n} open report${n > 1 ? 's' : ''}</b>
-               for AM ${esc(sn)}.</div>`;
-    } else {
-      body += '<div class="svnone">No open reports for this train.</div>';
+      const st = peeStatus('AM ' + sn);
+      body += `<div class="svalert"><b>${esc(st ? st.label
+                 : n + ' open report' + (n > 1 ? 's' : ''))}</b>
+               ${esc(st ? n + ' open report' + (n > 1 ? 's' : '') : '')}
+               for AM ${esc(sn)}${f.top_category_label
+                 ? ' \u2014 ' + esc(f.top_category_label.toLowerCase()) : ''}${
+               f.worst_car_label ? ', worst: ' + esc(f.worst_car_label) : ''}.</div>`;
+      said = true;
     }
+    if (pw) {
+      body += `<div class="svalert"><b>Other half of this train</b>${
+        esc(partnerWarnText(pw))}</div>`;
+      said = true;
+    }
+    if (!said) body += '<div class="svnone">No open reports for this train.</div>';
   }
   // Service alerts in force for this route or station. THE thing a rider needs
   // before boarding, and until now reachable only via the bell.
