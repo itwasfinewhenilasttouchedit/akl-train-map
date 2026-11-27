@@ -2880,13 +2880,36 @@ async function tick() {
   for (const v of lines.values()) v.count = 0;
   const seen = new Set();
 
+  // PHASE 3: the set of vehicles that get a marker is now the server's
+  // `services[]`, not a predicate recomputed here. It used to be
+  // `in_service !== false && !trailing_half`, written out in JavaScript and
+  // again in Python (service.recount), with a comment in each telling the
+  // reader to keep them identical by hand. They drifted exactly as you would
+  // expect: `in_service` meant three things at once, and a 6-car satisfies
+  // "carrying passengers" on both halves but "gets the icon" on only one.
+  //
+  // `lead_id` is derived server-side from the SAME annotated payload the
+  // markers are built from (service.publish runs after service.annotate), so
+  // the HUD count and the icon count are now one count of one thing.
+  //
+  // Fallback: if `services[]` is absent -- an older server, or a cached shell
+  // served against a newer client -- fall back to the old predicate rather
+  // than drawing nothing. A blank map is a much worse failure than a stale
+  // rule, and this is the one place that rule may still appear.
+  const leadIds = Array.isArray(d.services)
+    ? new Set(d.services.map(s => s.lead_id))
+    : null;
+  const svcBySet = new Map();
+  for (const s of (d.services || []))
+    for (const sn of (s.set_nos || [])) svcBySet.set(sn, s);
+
   for (const t of (d.trains || [])) {
     // A 6-car service is two coupled sets, and AT gives each its own GPS. Both
     // used to get a marker, so one physical train showed up twice — and since
     // AT attaches the trip to only one half, the other was drawn as grey
     // stabled stock doing line speed with no destination. Draw the service
-    // once, at the half carrying the trip; the popup names both sets.
-    if (t.trailing_half) continue;
+    // once, at the half the server named as lead; the popup names both sets.
+    if (leadIds ? !leadIds.has(t.id) : t.trailing_half) continue;
     seen.add(t.id);
     if (!lines.has(t.route))
       // Not-in-service units (live.py OOS_ROUTE) start HIDDEN: they are ~a

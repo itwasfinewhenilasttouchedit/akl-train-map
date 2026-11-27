@@ -267,20 +267,36 @@ def annotate(d: dict, couples: dict, set_number) -> dict:
     so both are left as stabled stock and both keep their icon.
     """
     counters = {"rescued": 0, "regeom": 0}
-    if not d:
+    if d is None:
         return counters
-    trains = d.get("trains") or []
-    if not trains:
-        # Still recount: an empty feed must report 0 services, not whatever
-        # the previous poll left behind.
-        recount(d)
+    # EVERY path below must leave `services[]` present, even when empty: the
+    # client does `Array.isArray(d.services)` and silently falls back to the
+    # legacy draw predicate when it is missing, so an absent key would mean
+    # phase 3 quietly did nothing.
+    #
+    # Note `d is None`, not `not d`: an EMPTY dict is falsy, so `not d`
+    # returned here and never published. Caught by the parity gate asserting
+    # that services[] is present, not by reading this code.
+    if not d.get("trains"):
+        # Legacy distinguished these two and so must this, or the parity gate
+        # is lying:
+        #   no "trains" KEY at all -> legacy returned before counting, so the
+        #     count keys must stay absent (a dict with no feed is not a feed
+        #     reporting zero).
+        #   "trains": []          -> legacy DID recount, so an empty feed
+        #     reports 0 instead of the previous poll's figures.
+        if d.get("trains") is not None:
+            recount(d)
+        publish(d, set_number)
         return counters
+    trains = d["trains"]
     if not couples:
         # No coupling info this poll (3-car-only running, or the consist feed
         # failed). Every vehicle is its own train, so the count must not be
         # skipped -- returning early without counting was how a stale vehicle
         # figure survived.
         recount(d)
+        publish(d, set_number)
         return counters
 
     by_set: dict[str, dict] = {}
@@ -354,10 +370,154 @@ def annotate(d: dict, couples: dict, set_number) -> dict:
         d["out_of_service"] = max(0, int(d.get("out_of_service") or 0) - rescued)
         d["in_service"] = int(d.get("in_service") or 0) + rescued
 
-    # Must run after the annotation above, because it keys off `trailing_half`.
+    # Must run after the annotation above, because they key off `trailing_half`
+    # and `consist_position`, both of which the geometry pass may have changed.
     recount(d)
+    publish(d, set_number)
     counters["rescued"], counters["regeom"] = rescued, regeom
     return counters
+
+
+def is_drawn(t: dict) -> bool:
+    """Should this vehicle carry a marker? == "is this the lead half".
+
+    THE ONE DEFINITION of what gets an icon, and it is deliberately NOT the
+    same question as "is this train carrying passengers" -- conflating those
+    two is the original defect. Stabled stock IS drawn (grey, and hidden by
+    default behind the OOS legend toggle); it is simply not counted as a
+    service in the HUD.
+
+    So:
+      is_drawn(t)      -> gets a marker          -> `not trailing_half`
+      is_in_service(t) -> counted in the HUD     -> drawn AND has a trip
+
+    Measured trap this encodes: the pre-phase-3 client skipped ONLY
+    `trailing_half`, while `recount()` required `in_service is not False` as
+    well. They were never the same expression despite comments in both files
+    claiming they had to be kept identical -- which is precisely why neither
+    tier should own the definition.
+    """
+    return not t.get("trailing_half")
+
+
+def is_in_service(t: dict) -> bool:
+    """Drawn AND carrying passengers -- the number a rider reads in the HUD."""
+    return is_drawn(t) and t.get("in_service") is not False
+
+
+def publish(d: dict, set_number) -> list[dict]:
+    """Build `d["services"]` from the annotated payload.
+
+    Runs AFTER `annotate()`, deliberately: annotate has already applied the
+    rescue and the geometry re-order, so grouping here cannot disagree with the
+    icons. The lead is whichever member satisfies `is_drawn()` -- derived from
+    the payload rather than recomputed from the couple map, so `services[]` and
+    `trains[]` are incapable of describing different trains.
+
+    Each entry is the SERVICE's identity, not a vehicle's:
+
+        lead_id    the vehicle whose marker represents this train
+        set_nos    every set in it, front-first when the order is known
+        cars       3 or 6
+        ordered    whether front/rear is known (if false, attach no carriage
+                   NUMBER to anything -- see the module docstring)
+        in_service whether it is carrying passengers
+
+    Returns the list as well as attaching it, so callers can assert on it
+    without reaching back into the dict.
+    """
+    trains = d.get("trains") or []
+    by_set: dict[int, dict] = {}
+    for t in trains:
+        sn = set_number(t.get("unit"))
+        if sn is not None:
+            by_set[int(sn)] = t
+
+    services: list[dict] = []
+    seen: set[int] = set()
+    for t in trains:
+        sn = set_number(t.get("unit"))
+        if sn is None:
+            # No set number means no identity to group on. It still draws, so
+            # it still gets a service -- a lone vehicle rather than a silent
+            # omission that would make the counts disagree.
+            if is_drawn(t):
+                services.append({"lead_id": t.get("id"), "set_nos": [],
+                                 "cars": CARS_PER_UNIT, "ordered": False,
+                                 "in_service": t.get("in_service") is not False,
+                                 "units": [t.get("unit")]})
+            continue  # a trailing half has no identity of its own
+        sn = int(sn)
+        if sn in seen:
+            continue
+
+        group = [t]
+        partner_set = t.get("partner_set")
+        if partner_set not in (None, ""):
+            partner = by_set.get(int(partner_set))
+            if partner is not None and int(partner_set) != sn:
+                group.append(partner)
+        for g in group:
+            gs = set_number(g.get("unit"))
+            if gs is not None:
+                seen.add(int(gs))
+
+        # Front-first when known. `consist_position` is the annotated ordering;
+        # absent it, declaration order, and `ordered` says so honestly.
+        ordered = all(g.get("consist_position") in ("front", "rear")
+                      for g in group) and len(
+                          {g.get("consist_position") for g in group}) == len(group)
+        if ordered:
+            group.sort(key=lambda g: 0 if g.get("consist_position") == "front" else 1)
+
+        leads = [g for g in group if is_drawn(g)]
+        if not leads:
+            # Both halves trailing is impossible by construction; if it ever
+            # happens the train would silently vanish from the map, so say so.
+            raise ModelError(
+                "no member of a service is drawn: "
+                f"{[set_number(g.get('unit')) for g in group]}")
+
+        if len(leads) > 1:
+            # BOTH halves drawn: a physically coupled pair with no trip on
+            # EITHER half -- empty stock running to or from a depot. Measured
+            # live: 4 such pairs. Legacy drew two grey icons for these and
+            # phase 2 deliberately preserved that, because collapsing them
+            # changes what a rider sees AND changes `out_of_service`; it is a
+            # behaviour decision owed its own phase (see the design doc).
+            #
+            # So they are published as two 3-car services, NOT one 6-car. This
+            # is the honest encoding of "we know they are coupled but we are
+            # still drawing them separately": `services[]` must describe what
+            # is on the map, and anything else would make the parity gate pass
+            # while the map disagreed with it.
+            for g in leads:
+                gsn = set_number(g.get("unit"))
+                services.append({
+                    "lead_id": g.get("id"),
+                    "set_nos": [int(gsn)] if gsn is not None else [],
+                    "units": [g.get("unit")],
+                    "cars": CARS_PER_UNIT,
+                    "ordered": True,
+                    "in_service": g.get("in_service") is not False,
+                    "coupled_to": [int(set_number(o.get("unit")))
+                                   for o in leads if o is not g
+                                   and set_number(o.get("unit")) is not None],
+                })
+            continue
+
+        services.append({
+            "lead_id": leads[0].get("id"),
+            "set_nos": [int(set_number(g.get("unit"))) for g in group
+                        if set_number(g.get("unit")) is not None],
+            "units": [g.get("unit") for g in group],
+            "cars": len(group) * CARS_PER_UNIT,
+            "ordered": ordered if len(group) > 1 else True,
+            "in_service": leads[0].get("in_service") is not False,
+        })
+
+    d["services"] = services
+    return services
 
 
 def recount(d: dict) -> None:
@@ -379,12 +539,10 @@ def recount(d: dict) -> None:
     """
     trains = d.get("trains") or []
     veh_in = sum(1 for t in trains if t.get("in_service") is not False)
-    # The same predicate the client uses to decide whether to draw a marker,
-    # so the HUD number and the icon count cannot disagree. Phase 3 removes
-    # this duplication by shipping `services[]` and letting the client count
-    # what it draws.
-    svc = sum(1 for t in trains
-              if t.get("in_service") is not False and not t.get("trailing_half"))
+    # One definition of "gets an icon", shared with the client via `services[]`
+    # (phase 3). The HUD number and the icon count are now the same count of
+    # the same thing rather than two expressions kept in step by hand.
+    svc = sum(1 for t in trains if is_in_service(t))
     d["vehicles_in_service"] = veh_in
     d["in_service"] = svc
     d["out_of_service"] = sum(1 for t in trains if t.get("in_service") is False)

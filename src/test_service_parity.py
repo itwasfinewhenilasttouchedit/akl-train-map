@@ -104,59 +104,9 @@ caps = json.loads(FIX.read_text()) if FIX.exists() else []
 ok("captured production payloads present", len(caps) >= 3, f"{len(caps)} caps")
 
 
-def couples_from(payload):
-    """Rebuild the couples map the way _consist_map() would have produced it,
-    from the annotations already present in a captured payload."""
-    out = {}
-    for t in payload.get("trains") or []:
-        sn = feedback.set_number(t.get("unit"))
-        if not sn or not t.get("partner_set"):
-            continue
-        out[str(sn)] = {
-            "partner": t.get("partner_set"),
-            "consist": t.get("consist"),
-            "position": t.get("consist_position"),
-            "source": t.get("consist_source"),
-            "order_source": t.get("order_source"),
-        }
-    return out
-
-
-def strip(payload):
-    """Remove everything the annotators add, so both run from the same input.
-
-    THE SUBTLE BIT -- `service_set` is the only honest marker.
-    A first version of this keyed off `trailing_half`, which was wrong: the
-    geometry pass marks the TRIP-HOLDING half as trailing whenever the trip
-    sits on the front set, so stripping by `trailing_half` deleted the trip
-    from a half that genuinely owned one. Both halves then looked stabled, no
-    rescue could fire, and the rear-trip case silently vanished from the
-    fixtures -- the gate went green over a case it was no longer testing.
-
-    `service_set` is set on, and only on, the half that arrived WITHOUT a trip
-    (the trip holder never receives it). So it identifies exactly the records
-    whose service identity was borrowed and must be handed back.
-    """
-    d = copy.deepcopy(payload)
-    added = ("consist", "consist_source", "partner_set", "consist_position",
-             "order_source", "trailing_half", "trailing_source", "service_set")
-    for t in d.get("trains") or []:
-        if t.get("service_set"):
-            # This half owned no trip; it inherited 12 fields and, if geometry
-            # put it at the front, had in_service forced True. Undo both.
-            for k in S.SERVICE_FIELDS:
-                t.pop(k, None)
-            t["in_service"] = False
-        for k in added:
-            t.pop(k, None)
-    for k in ("in_service", "vehicles_in_service", "out_of_service",
-              "coupled_halves", "trailing_halves"):
-        d.pop(k, None)
-    d["in_service"] = sum(1 for t in d["trains"] if t.get("in_service"))
-    d["out_of_service"] = sum(1 for t in d["trains"]
-                              if t.get("in_service") is False)
-    return d
-
+# Fixture helpers live in test_fixtures.py so phase 3's gate can reuse them
+# without importing (and thereby executing) this script. See that module.
+from test_fixtures import couples_from, strip  # noqa: E402,E501  (re-exported)
 
 ALL_KEYS = set()
 for c in caps:
@@ -248,7 +198,14 @@ for name, payload in [
     g["STATE"]["data"] = a
     legacy["_annotate_consists"]()
     S.annotate(b, cpl, feedback.set_number)
-    ok(f"{name}: identical", a == b, f"legacy={a} new={b}")
+    # Phase 3 ADDS `services[]`, which legacy cannot produce. That is the one
+    # intended difference, so it is removed by name rather than by relaxing the
+    # comparison: every other key must still match exactly, and a typo in the
+    # key name would resurrect the full diff rather than hide it.
+    svcs = b.pop("services", None)
+    ok(f"{name}: identical apart from services[]", a == b,
+       f"legacy={a} new={b}")
+    ok(f"{name}: services[] was in fact present", svcs is not None)
 
 print("\n-- the stabled pair stays TWO icons (explicitly NOT collapsed) --")
 cpl = {"701": {"partner": "702", "position": "front", "consist": 6},
