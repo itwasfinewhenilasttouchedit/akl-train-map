@@ -234,6 +234,163 @@ def build(set_nos, *, in_service=False, positions=None, units=None,
                    order_src=order_src)
 
 
+def annotate(d: dict, couples: dict, set_number) -> dict:
+    """Project services back onto the flat `trains` payload, IN PLACE.
+
+    This is the phase-2 seam. It replaces `server._annotate_consists()`'s body
+    and MUST reproduce it exactly -- the parity gate
+    (`src/test_service_parity.py`) diffs the two implementations key by key on
+    captured live payloads, so any divergence here is a test failure, not a
+    silent production change.
+
+    Returns a dict of counters: {"rescued": n, "regeom": n}.
+
+    WHY IT STILL SPEAKS THE FLAT SHAPE
+    ----------------------------------
+    The client and the archive both read vehicle-shaped records. Changing the
+    wire format and the model in one commit would mean a regression could not
+    be attributed to either. So phase 2 moves the LOGIC behind the entity while
+    the OUTPUT stays byte-identical; phase 3 adds `services[]` alongside and
+    moves the client.
+
+    DELIBERATELY PRESERVED: STABLED PAIRS STAY TWO ICONS
+    ----------------------------------------------------
+    A coupled pair where NEITHER half holds a trip (measured live: 4 such
+    pairs, both halves moving and ordered -- empty stock running to or from a
+    depot) is left completely alone, exactly as the legacy code left it. The
+    service model would happily collapse it to one 6-car with one icon, which
+    is arguably the better drawing, but it would change what a rider sees and
+    it would change `out_of_service`. That is a behaviour decision and it gets
+    its own phase, not a free ride inside a refactor that promised to change
+    nothing. The gate that preserves it is `not partner.get("in_service")`
+    below: with no trip on either half there is nothing to rescue a half INTO,
+    so both are left as stabled stock and both keep their icon.
+    """
+    counters = {"rescued": 0, "regeom": 0}
+    if not d:
+        return counters
+    trains = d.get("trains") or []
+    if not trains:
+        # Still recount: an empty feed must report 0 services, not whatever
+        # the previous poll left behind.
+        recount(d)
+        return counters
+    if not couples:
+        # No coupling info this poll (3-car-only running, or the consist feed
+        # failed). Every vehicle is its own train, so the count must not be
+        # skipped -- returning early without counting was how a stale vehicle
+        # figure survived.
+        recount(d)
+        return counters
+
+    by_set: dict[str, dict] = {}
+    for t in trains:
+        sn = set_number(t.get("unit"))
+        if sn:
+            by_set[str(sn)] = t
+
+    rescued = 0
+    pairs: list[tuple[dict, dict]] = []
+    for t in trains:
+        sn = set_number(t.get("unit"))
+        pair = couples.get(str(sn)) if sn else None
+        if not pair:
+            continue
+        t["consist"] = pair.get("consist")
+        t["consist_source"] = pair.get("source")
+        t["partner_set"] = pair.get("partner")
+        t["consist_position"] = pair.get("position")
+        # "inferred" = geometry resolved it from THIS poll's positions;
+        # "latched" = remembered from an earlier moving sample on the same
+        # trip. Exposed so the ordering's provenance stays auditable.
+        if pair.get("order_source"):
+            t["order_source"] = pair["order_source"]
+
+        partner = by_set.get(str(pair.get("partner") or ""))
+        if not partner or t.get("in_service") or not partner.get("in_service"):
+            continue
+        # This half has no trip but its partner is working a service: it is the
+        # other end of that train, not stabled stock.
+        t["trailing_half"] = True
+        t["trailing_source"] = "no_trip"
+        t["service_set"] = set_number(partner.get("unit"))
+        for k in SERVICE_FIELDS:
+            if k in partner:
+                t[k] = partner[k]
+        rescued += 1
+        pairs.append((t, partner))
+
+    # Geometry, not trip ownership, decides which half is the tail: AT is known
+    # to put the trip on the REAR set at least some of the time (ground truth
+    # 2026-11-23), so "has no trip" is not "is behind".
+    regeom = 0
+    for half, partner in pairs:
+        hp, pp = half.get("consist_position"), partner.get("consist_position")
+        front = None
+        if hp == "front" or pp == "rear":
+            front = half
+        elif hp == "rear" or pp == "front":
+            front = partner
+        if front is None:
+            continue  # both stationary: geometry has nothing, keep the guess
+        rear = partner if front is half else half
+        front["trailing_half"] = False
+        front["trailing_source"] = "geometry"
+        rear["trailing_half"] = True
+        rear["trailing_source"] = "geometry"
+        if rear is partner:
+            # The drawn icon moves to the trip-less half, so it must carry the
+            # identity of the service it is physically leading -- including
+            # `in_service`, or the client's OOS filter would hide the only icon
+            # for a running train.
+            front["in_service"] = True
+            front.setdefault("service_set", set_number(partner.get("unit")))
+            regeom += 1
+
+    if rescued:
+        # These are no longer "out of service" in any sense a rider would
+        # recognise, even though they carry no trip of their own.
+        d["trailing_halves"] = rescued
+        d["out_of_service"] = max(0, int(d.get("out_of_service") or 0) - rescued)
+        d["in_service"] = int(d.get("in_service") or 0) + rescued
+
+    # Must run after the annotation above, because it keys off `trailing_half`.
+    recount(d)
+    counters["rescued"], counters["regeom"] = rescued, regeom
+    return counters
+
+
+def recount(d: dict) -> None:
+    """Count TRAINS, not GPS vehicles.
+
+    A 6-car service is two coupled 3-car sets and AT publishes a separate GPS
+    vehicle for each half, so counting vehicles counted every 6-car twice:
+    measured on production, the HUD claimed 71 in service while 39 markers
+    existed, overstating by 32. 39 was also exactly the number of distinct
+    trip_ids -- independent confirmation that the service figure is the honest
+    answer to "how many trains are running".
+
+    `in_service` is the number a rider reads, so it means SERVICES.
+    `vehicles_in_service` keeps the raw vehicle figure for the health endpoint
+    and the archive, which legitimately care about hardware.
+
+    Called from every return path, including the early ones: an empty feed must
+    report 0 rather than last poll's figure.
+    """
+    trains = d.get("trains") or []
+    veh_in = sum(1 for t in trains if t.get("in_service") is not False)
+    # The same predicate the client uses to decide whether to draw a marker,
+    # so the HUD number and the icon count cannot disagree. Phase 3 removes
+    # this duplication by shipping `services[]` and letting the client count
+    # what it draws.
+    svc = sum(1 for t in trains
+              if t.get("in_service") is not False and not t.get("trailing_half"))
+    d["vehicles_in_service"] = veh_in
+    d["in_service"] = svc
+    d["out_of_service"] = sum(1 for t in trains if t.get("in_service") is False)
+    d["coupled_halves"] = veh_in - svc
+
+
 def build_services(trains, couples=None) -> list[Service]:
     """Group a live `trains` payload into services.
 
