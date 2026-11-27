@@ -292,6 +292,56 @@ async def api_trains() -> JSONResponse:
     return JSONResponse(out)
 
 
+def _revision() -> str | None:
+    """The git commit this process is running, or None.
+
+    WHY THIS EXISTS
+    ---------------
+    Phase 2 was a parity refactor: production looked healthy afterwards, but
+    the live invariants (`in_service == drawn icons`, no contradictions) held
+    BEFORE the change too, so "healthy" proved nothing about WHICH revision
+    was running. `server.py` is not served, so there was no hash to compare,
+    and the deploy host's SSH host key is not covered by our certificate
+    authority, so it cannot simply be asked. A deploy was therefore
+    unverifiable from outside. That is a bad property for a box that redeploys
+    itself unattended every five minutes.
+
+    Read from `.git` directly rather than shelling out to `git`: no subprocess
+    on the request path, no dependency on a git binary in the runtime image,
+    and it still works when the deploy is a plain `git pull`. `APP_REVISION`
+    overrides it for image-based deploys that ship no `.git`.
+
+    Resolved once at import. A redeploy restarts the process, so a cached
+    value cannot go stale without the cache going with it.
+    """
+    env = os.environ.get("APP_REVISION")
+    if env:
+        return env.strip()[:40] or None
+    try:
+        git = Path(__file__).resolve().parent.parent / ".git"
+        head = (git / "HEAD").read_text().strip()
+        if not head.startswith("ref:"):
+            return head[:40]  # detached HEAD is already a sha
+        ref = head.split(None, 1)[1].strip()
+        direct = git / ref
+        if direct.exists():
+            return direct.read_text().strip()[:40]
+        # Packed refs: a freshly cloned or gc'd repo has no loose ref file.
+        for line in (git / "packed-refs").read_text().splitlines():
+            if line.startswith("#") or " " not in line:
+                continue
+            sha, name = line.split(None, 1)
+            if name.strip() == ref:
+                return sha[:40]
+    except Exception:
+        # Never let a missing or odd .git stop the app serving trains.
+        return None
+    return None
+
+
+REVISION = _revision()
+
+
 @app.get("/api/health")
 async def api_health() -> dict:
     d = STATE["data"]
@@ -304,7 +354,10 @@ async def api_health() -> dict:
             "with_prediction": d.get("with_prediction") if d else None,
             "poll_ms": d["poll_ms"] if d else None,
             "feedback": feedback.stats(repeat=False)["reports"],
-            "last_fetch": STATE["fetched"], "error": STATE["error"]}
+            "last_fetch": STATE["fetched"], "error": STATE["error"],
+            # Lets a deploy be verified from outside, which it previously
+            # could not be -- see _revision().
+            "revision": REVISION}
 
 
 @app.get("/api/archive")
