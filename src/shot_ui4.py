@@ -321,10 +321,56 @@ with sync_playwright() as pw:
         "() => (document.getElementById('err')||{}).textContent || ''")
     ck(not apierr.strip(), 'no server error shown in the HUD',
        repr(apierr.strip()))
-    # Nothing may overflow the phone viewport horizontally. Leaflet tiles are
-    # excluded: a tiled map necessarily paints past the viewport edge, that is
-    # the whole mechanism, so flagging them is a bug in the test not the page.
+    # Nothing may overflow the phone viewport horizontally.
+    #
+    # THIS ASSERTION USED TO BE UNFALSIFIABLE. It walked every element's
+    # getBoundingClientRect() and flagged anything reaching past 391px. Two
+    # things made that meaningless:
+    #
+    #   1. `html` and `body` are both `overflow:hidden` here, so NOTHING can
+    #      visibly overflow. A deliberately-planted 400px-wide red canary div
+    #      at left:300px painted nothing and was invisible to the naked eye --
+    #      the page simply cannot scroll sideways. An assertion that cannot
+    #      fail for a real reason is decoration.
+    #   2. It flagged 63 elements that paint nothing: the #tktrack marquee
+    #      (a double-width strip translated under a 250px `overflow:hidden`
+    #      window -- that IS the mechanism) and the four #about-seo links
+    #      inside a `.sr-only` box clipped to `rect(0,0,0,0)` with
+    #      `white-space:nowrap`, which therefore report 162-179px rects while
+    #      being 1x1 on screen. Those four turned CI red from the commit that
+    #      added them, and the red was then ignored as "known", which is the
+    #      real cost: a gate nobody believes stops being a gate.
+    #
+    # So assert the signal that actually means something -- `scrollWidth`
+    # exceeding `clientWidth`, i.e. real content extending past the window.
+    # Measured: that one DOES notice the canary (390 -> 700, scrollable
+    # False -> True) even with `overflow:hidden`, because scrollWidth reports
+    # the overflow area regardless of whether a scrollbar is offered.
+    #
+    # Belt and braces: the element walk is KEPT, but restricted to elements
+    # that are genuinely paintable (not inside a zero-clipped or 1px-wide
+    # hidden container), so a visible chrome element poking out is still named
+    # rather than just counted.
     ovf = pg.evaluate("""() => {
+      const doc = document.scrollingElement || document.documentElement;
+      // Visually hidden = clipped away by an ancestor, not merely offscreen.
+      const hidden = (el) => {
+        for (let p = el; p; p = p.parentElement) {
+          const cs = getComputedStyle(p);
+          if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+          // .sr-only pattern: clip:rect(0,0,0,0) paints nothing at all.
+          if (cs.clip && cs.clip !== 'auto' &&
+              /rect\\((0p?x?,\\s*){3}0p?x?\\)/.test(cs.clip)) return true;
+          // A marquee strip inside a narrow overflow:hidden window, or any
+          // 1x1 visually-hidden host: the child's rect is not what paints.
+          if (p !== el && cs.overflow === 'hidden') {
+            const pr = p.getBoundingClientRect();
+            const er = el.getBoundingClientRect();
+            if (er.right > pr.right + 1 || er.left < pr.left - 1) return true;
+          }
+        }
+        return false;
+      };
       const bad = [];
       for (const e of document.querySelectorAll('body *')) {
         // Everything Leaflet positions in map space is excluded: tiles,
@@ -334,15 +380,42 @@ with sync_playwright() as pw:
           continue;
         const cs = getComputedStyle(e);
         if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+        if (hidden(e)) continue;
         const r = e.getBoundingClientRect();
         if (r.width && (r.right > 391 || r.left < -1))
           bad.push(e.tagName + '#' + (e.id||'') + '.' +
                    (e.className||'').toString().slice(0,24) +
                    ' ' + Math.round(r.left) + '..' + Math.round(r.right));
       }
-      return bad.slice(0, 8);
+      return {bad: bad.slice(0, 8),
+              scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth,
+              scrollable: doc.scrollWidth > doc.clientWidth + 1};
     }""")
-    ck(not ovf, 'nothing overflows 390px', json.dumps(ovf))
+    ck(not ovf['scrollable'],
+       'page does not scroll horizontally',
+       f"scrollWidth {ovf['scrollWidth']} vs clientWidth {ovf['clientWidth']}")
+    ck(not ovf['bad'], 'no visible element overflows 390px',
+       json.dumps(ovf['bad']))
+
+    # PROVE THE ASSERTIONS ABOVE CAN STILL FAIL. A filter tuned until the page
+    # passes is indistinguishable from a filter that passes everything, and
+    # this gate has already been fooled once. Plant a genuinely overflowing
+    # visible element, confirm it is caught, then remove it.
+    canary = pg.evaluate("""() => {
+      const d = document.createElement('div');
+      d.id = 'ovf-canary';
+      d.style.cssText = 'position:absolute;left:300px;top:200px;width:400px;'
+                      + 'height:30px;background:red;z-index:99999';
+      document.body.appendChild(d);
+      const doc = document.scrollingElement || document.documentElement;
+      const out = {scrollable: doc.scrollWidth > doc.clientWidth + 1,
+                   scrollWidth: doc.scrollWidth};
+      d.remove();
+      return out;
+    }""")
+    ck(canary['scrollable'],
+       'the overflow check still detects a real overflow (canary)',
+       json.dumps(canary))
     pg.screenshot(path=f'{OUT}/phone_map.png')
 
     # pixel skin must restyle the bell, not leave it dark-navy on ivory
