@@ -52,21 +52,49 @@ with sync_playwright() as p:
             pg.wait_for_timeout(2500)
 
             tag = f"{name}/{skin}"
-            btn = box(pg, "#skinbtn")
+            # The CORNER button is #menubtn now. The pixel toggle used to own
+            # this corner; it moved inside the menu #menubtn opens, so the
+            # thing that can collide with the bottom row and the credit chip is
+            # #menubtn. Measured against it rather than #skinbtn, which is
+            # inside a `hidden` panel and therefore has a 0x0 rect -- an
+            # overlap test against a zero-size box can never fail.
+            btn = box(pg, "#menubtn")
             attr = box(pg, ".leaflet-control-attribution")
             bar = box(pg, "#favbar")
 
-            # The skin toggle must be a square within the WCAG 2.5.5 minimum.
+            # The corner button must be a square within the WCAG 2.5.5 minimum.
             if not btn:
-                fails.append(f"{tag}: #skinbtn missing")
+                fails.append(f"{tag}: #menubtn missing")
             else:
                 if abs(btn["w"] - btn["h"]) > 1:
-                    fails.append(f"{tag}: skinbtn not square {btn['w']}x{btn['h']}")
+                    fails.append(f"{tag}: menubtn not square {btn['w']}x{btn['h']}")
                 if btn["w"] < 44 or btn["h"] < 44:
-                    fails.append(f"{tag}: skinbtn below 44px {btn['w']}x{btn['h']}")
+                    fails.append(f"{tag}: menubtn below 44px {btn['w']}x{btn['h']}")
+
+            # And the pixel toggle must still be INSIDE the menu, still a real
+            # 44px square button, still showing its single-letter face. Opened
+            # for real, so this cannot pass on a control nobody can reach.
+            pg.click("#menubtn")
+            pg.wait_for_timeout(300)
+            sk = box(pg, "#skinbtn")
+            if not sk:
+                fails.append(f"{tag}: #skinbtn missing from the menu")
+            else:
+                if sk["w"] < 44 or sk["h"] < 44:
+                    fails.append(f"{tag}: skinbtn below 44px {sk['w']}x{sk['h']}")
                 txt = pg.inner_text("#skinbtn").strip()
                 if txt != "P":
                     fails.append(f"{tag}: skinbtn label {txt!r} != 'P'")
+                inside = pg.evaluate(
+                    "() => { const m=document.getElementById('menu'),"
+                    " s=document.getElementById('skinbtn');"
+                    " return !!(m && s && m.contains(s)); }")
+                if not inside:
+                    fails.append(f"{tag}: skinbtn is not inside #menu")
+            pg.click("#menubtn")
+            pg.wait_for_timeout(250)
+            if pg.is_visible("#skinbtn"):
+                fails.append(f"{tag}: menu did not close on a second press")
 
             # Credit collapsed on load, and small.
             if not attr:
@@ -82,11 +110,11 @@ with sync_playwright() as p:
 
             # The bottom row must not collide with the toggle or the credit.
             if overlaps(bar, btn):
-                fails.append(f"{tag}: favbar overlaps skinbtn")
+                fails.append(f"{tag}: favbar overlaps menubtn")
             if overlaps(bar, attr):
                 fails.append(f"{tag}: favbar overlaps credit")
             if overlaps(btn, attr):
-                fails.append(f"{tag}: skinbtn overlaps credit")
+                fails.append(f"{tag}: menubtn overlaps credit")
 
             # The credit text must still be present in the DOM (licence), even
             # while visually collapsed.
@@ -104,7 +132,7 @@ with sync_playwright() as p:
             if o2 and o2["w"] <= 28:
                 fails.append(f"{tag}: credit did not expand on click (w={o2['w']})")
 
-            print(f"[{tag}] skinbtn={btn['w']:.0f}x{btn['h']:.0f} "
+            print(f"[{tag}] menubtn={btn['w']:.0f}x{btn['h']:.0f} "
                   f"credit collapsed={attr['w']:.0f}px expanded={o2['w']:.0f}px "
                   f"favbar.right={bar['right']:.0f} btn.x={btn['x']:.0f}")
 

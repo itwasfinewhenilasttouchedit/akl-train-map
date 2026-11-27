@@ -25,7 +25,7 @@
 <!-- ?v= is a content hash injected by src/stamp_assets.py at build time.
      An etag only helps if the browser bothers to revalidate; mobile
      Safari often will not. A changed URL cannot be served from cache. -->
-<link rel="stylesheet" href="/static/pixel.css?v=6f5baea435">
+<link rel="stylesheet" href="/static/pixel.css?v=17c37479c8">
 <script src="/static/vendor/leaflet.js"></script>
 <style>
   :root { --bg:#0d1117; --panel:#161c24; --fg:#e8edf2; --muted:#8a97a6;
@@ -265,6 +265,38 @@
      a rider on a platform it is one train, so they must not lead the card. */
   .svsets { margin-top:6px; font-size:10.5px; color:var(--muted);
             font-variant-numeric:tabular-nums; }
+  /* ---- fleet screen, opened from the menu ----
+     Same modal pattern as the board and the service card. z 960: it is opened
+     from the menu, which itself sits at 9998, so it must come out ABOVE every
+     other overlay but the menu — and the menu is closed before this opens. */
+  #flwrap { position:absolute; inset:0; z-index:960; background:rgba(5,8,12,.62);
+            display:none; align-items:center; justify-content:center; }
+  #flwrap.on { display:flex; }
+  #fl { width:360px; max-width:92vw; box-sizing:border-box;
+        /* border-box, not the default: `width:360px` plus 18px of padding each
+           side measured 396px wide, and `max-width:92vw` caps the CONTENT box,
+           so at 390px the panel still ran 3px off the left edge. Caught by
+           src/shot_fleet.py's viewport check, which is why that check exists. */
+        padding:16px 18px; max-height:88vh;
+        display:flex; flex-direction:column; }
+  #fl h2 { margin:0 0 3px; font-size:15px; }
+  #fl .hint { color:var(--muted); font-size:11px; margin-bottom:11px; }
+  #flq { width:100%; box-sizing:border-box; background:#0f141b; color:var(--fg);
+         border:1px solid var(--edge); border-radius:7px; min-height:44px;
+         padding:11px 10px; font:inherit; font-size:14px; }
+  /* The list scrolls, not the panel: the search box must stay on screen while
+     a rider types, or filtering a 100-unit list scrolls the control they are
+     typing into off the top. */
+  #fllist { margin-top:10px; overflow:auto; flex:1 1 auto; min-height:80px; }
+  .flrow { display:flex; align-items:center; gap:8px; justify-content:space-between;
+           border-top:1px solid var(--line); padding:8px 0; font-size:13px; }
+  .flrow .flu { font-variant-numeric:tabular-nums; }
+  .flrow .flm { color:var(--muted); font-size:11px; text-align:right; }
+  /* Live units get the accent; everything else is deliberately plain. The
+     colour is NOT the only carrier — the row says "live" in words too. */
+  .flrow.live .flu { color:var(--accent); font-weight:700; }
+  #flcount { color:var(--muted); font-size:11px; margin-top:8px; }
+  #flwrap .acts { display:flex; gap:8px; justify-content:flex-end; margin-top:11px; }
   #jpwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
             display:none; align-items:center; justify-content:center; }
   #jpwrap.on { display:flex; }
@@ -502,11 +534,12 @@
      Away, Plan), so they are laid out in a flex row instead of each being
      absolutely positioned — the previous approach needed a hand-guessed
      offset per button and an earlier guess overlapped two of them by 18px. */
-  /* #skinbtn is position:fixed bottom-right (pixel.css) and floats ABOVE this
+  /* #menubtn is position:fixed bottom-right (pixel.css) and floats ABOVE this
      row, so the bar stops short of it rather than running underneath — a
-     screenshot caught the Plan pill hidden behind the PIXEL toggle. The
-     toggle is now a 44px square P, so 60px covers it plus its 8px inset;
-     if that button ever grows again, this number must grow with it. */
+     screenshot caught the Plan pill hidden behind the button that used to live
+     there (the pixel toggle, now a row inside this menu). The corner button is
+     a 44px square, so 60px covers it plus its 8px inset; if that button ever
+     grows again, this number must grow with it. */
   /* MAP CREDIT: collapsed to an info chip.
      The full-width strip ran the whole bottom edge and, on a phone, read as a
      grey banner across the map -- the thing the page exists to show. It is
@@ -557,8 +590,9 @@
   /* The bottom-right control corner holds the credit; lift the whole corner
      clear of the 52px button row plus its 12px inset. */
   .leaflet-bottom.leaflet-right { bottom:74px; }
-  /* Right inset clears #skinbtn, which is now a 44px square P button plus its
-     8px inset -- was 94px when the toggle read "PIXEL ON". */
+  /* Right inset clears #menubtn, which is a 44px square menu button plus its
+     8px inset -- was 94px when the toggle that used to sit there read
+     "PIXEL ON". */
   #favbar { position:absolute; z-index:650; bottom:12px;
             left:8px; right:60px; gap:8px; justify-content:center; }
   .favbtn, #planbtn { background:var(--panel);
@@ -858,13 +892,35 @@
   the <a href="/line/southern-onehunga">Southern Line</a> and the
   <a href="/line/eastern-western">Eastern and Western Line</a>.</p>
 </section>
-<!-- Pixel skin toggle. A real <button>, so it is keyboard-reachable and
-     announced as a toggle; aria-pressed is maintained in JS.
-     The static attributes say ON because the skin is now the DEFAULT — if the
-     toggle's script fails to run, the markup must describe what the page
-     actually looks like rather than contradict it (4.1.2 Name, Role, Value). -->
-<button id="skinbtn" type="button" aria-pressed="true"
-        aria-label="Turn off pixel art skin" title="Pixel art skin">P</button>
+<!-- MENU. Occupies the position the pixel-skin toggle used to hold (fixed,
+     bottom-right, 44px square), because that corner is now the entry point to
+     several things rather than one novelty switch.
+     A real <button> with aria-expanded + aria-controls, so it is reachable by
+     Tab and announced as a disclosure. The panel is role=group, NOT role=menu:
+     role=menu promises arrow-key navigation between menuitems, and a promise
+     the keyboard handling does not keep is worse than plain buttons. -->
+<button id="menubtn" type="button" aria-expanded="false" aria-controls="menu"
+        aria-haspopup="true" aria-label="Menu" title="Menu">
+  <span aria-hidden="true">&#9776;</span>
+</button>
+<div id="menu" role="group" aria-label="Menu" hidden>
+  <!-- Pixel skin toggle. MOVED here from the bottom-right corner; it is the
+       same control, not a replacement — same id, same single-letter P face,
+       same aria-pressed contract. A real <button>, so it is keyboard-reachable
+       and announced as a toggle; aria-pressed is maintained in JS.
+       The static attributes say ON because the skin is the DEFAULT — if the
+       toggle's script fails to run, the markup must describe what the page
+       actually looks like rather than contradict it (4.1.2 Name, Role, Value).
+       The row label is a <span>, not a <label>: a <label> pointing at a
+       toggle button is not a labelling relationship any browser honours, and
+       the button already carries its own accessible name. -->
+  <div class="mrow">
+    <span class="mlbl" aria-hidden="true">Pixel art skin</span>
+    <button id="skinbtn" type="button" aria-pressed="true"
+            aria-label="Turn off pixel art skin" title="Pixel art skin">P</button>
+  </div>
+  <button id="fleetbtn" type="button" class="mitem">Fleet</button>
+</div>
 <!-- Falling blossom. Purely decorative, hidden from assistive tech, and
      CSS-gated behind prefers-reduced-motion. -->
 <div id="sakura" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
@@ -1048,6 +1104,29 @@
       <button class="btn ghost" id="svreport">Report this train</button>
       <button class="btn" id="svclose">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- Fleet screen. Opened from the menu. Lists every unit the archive has ever
+     seen, annotated with live status where that unit is running right now —
+     two different claims, which the rows label separately rather than merging
+     into one confident-looking status.
+     role=dialog + aria-modal, same as the other overlays here. The search box
+     is a real <input type="search"> with its own <label>, so it is announced
+     and the clear affordance is the platform's. -->
+<div id="flwrap" role="dialog" aria-modal="true" aria-labelledby="fltitle">
+  <div id="fl" class="panel">
+    <h2 id="fltitle">Fleet</h2>
+    <div class="hint" id="flsub">Every unit seen</div>
+    <label class="sr-only" for="flq">Search unit numbers</label>
+    <input id="flq" type="search" inputmode="numeric" autocomplete="off"
+           placeholder="Search unit number, e.g. 701">
+    <!-- aria-live=polite on the COUNT, not on the list: announcing 100 rows on
+         every keystroke is unusable, while "12 of 96 units" is the fact a
+         screen-reader user actually needs as they type. -->
+    <div id="flcount" aria-live="polite"></div>
+    <div id="fllist"></div>
+    <div class="acts"><button class="btn" id="flclose">Close</button></div>
   </div>
 </div>
 
@@ -1544,7 +1623,7 @@ document.getElementById('map').addEventListener('click', (ev) => {
   if (document.querySelector('#stwrap.on, #fbwrap.on, #jpwrap.on, #svwrap.on')) return;
   if (ev.target.closest(
       '.leaflet-control, #hud, #stwrap, #svwrap, #fbwrap, #jpwrap, #pickwrap, ' +
-      '#favbar, #alertdrawer, #alertbell, #skinbtn')) return;
+      '#favbar, #alertdrawer, #alertbell, #skinbtn, #menubtn, #menu')) return;
   // Inside a popup, let the popup's own buttons work.
   if (ev.target.closest('.leaflet-popup')) return;
 
@@ -3762,6 +3841,179 @@ document.addEventListener('click', (e) => {
     } catch (e) {}
   });
 })();
+
+// ---- menu + fleet screen ----------------------------------------------------
+// The menu replaced the bare pixel toggle in the bottom-right corner. The
+// toggle itself did NOT move in behaviour: it is the same #skinbtn element,
+// handled by the block above, now simply laid out inside this panel. That is
+// why nothing here touches the skin — a second place that sets `pixel` or
+// aria-pressed would be the duplicated-rule mistake, and the two copies would
+// drift the first time one of them was edited.
+(function () {
+  const btn = document.getElementById('menubtn');
+  const panel = document.getElementById('menu');
+  if (!btn || !panel) return;
+
+  function setOpen(on) {
+    // `hidden` IS the state. aria-expanded is derived from it on every call,
+    // so the attribute a screen reader reads cannot disagree with what is
+    // painted — they are set together or not at all.
+    panel.hidden = !on;
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+  }
+  setOpen(false);
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    setOpen(panel.hidden);
+    if (!panel.hidden) {
+      const f = panel.querySelector('button');
+      if (f) f.focus();
+    }
+  });
+  // Click-away. Capture on document, but anything inside the panel or on the
+  // button is explicitly exempt, so toggling the skin does not dismiss the
+  // menu the user is still reading.
+  document.addEventListener('click', e => {
+    if (panel.hidden) return;
+    if (e.target.closest('#menu, #menubtn')) return;
+    setOpen(false);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || panel.hidden) return;
+    // Only when nothing deeper is open: Esc must close the innermost thing.
+    if (document.querySelector('#flwrap.on, #stwrap.on, #svwrap.on, #fbwrap.on, #jpwrap.on')) return;
+    setOpen(false);
+    btn.focus();
+  });
+  window.closeMenu = () => setOpen(false);
+})();
+
+// Fleet screen. Fetched once per opening, never cached across openings: live
+// status is the volatile half of the payload and a stale "running to Papakura"
+// is a wrong fact, not a slightly old one.
+let FLEET = null;
+let FLOPENER = null;
+
+function flRow(u) {
+  const live = u.live;
+  // Units are identified by their SET number, which is what AT, the depot and
+  // the platform displays all use. `labels` holds the raw feed labels the
+  // archive saw for it; shown as the secondary fact, not as the identity.
+  const name = u.set_no ? ('AM ' + u.set_no) : (u.unit || '?');
+  let right;
+  if (live) {
+    // Words, not just the colour: "live" must survive a greyscale screenshot
+    // and a colour-blind reader.
+    const bits = ['live'];
+    if (live.cars) bits.push(live.cars + '-car');
+    if (!live.in_service) bits.push('not in service');
+    else if (live.route) bits.push(live.route);
+    if (live.to) bits.push('to ' + live.to);
+    right = esc(bits.join(' \u00b7 '));
+  } else if (u.obs) {
+    right = esc(u.obs.toLocaleString() + ' obs');
+  } else {
+    // Honest about the one thing the data cannot say. A label interned as a
+    // coupling partner has never been observed on its own, and that is NOT
+    // the same claim as "withdrawn" — which this archive cannot tell apart
+    // from "stabled" or "we were not recording", so it is not asserted.
+    right = 'seen as a coupled partner only';
+  }
+  // Every interpolation below goes through esc() or a numeric coercion (|0),
+  // and the only markup is ours — the same rule the board and the service card
+  // follow. data-set is forced to an integer so it can never carry an
+  // attribute-breaking character even if the payload were tampered with.
+  return `<div class="flrow${live ? ' live' : ''}" data-set="${u.set_no ? (u.set_no | 0) : ''}">
+            <span class="flu">${esc(name)}</span>
+            <span class="flm">${right}</span>
+          </div>`;
+}
+
+function flRender() {
+  const list = document.getElementById('fllist');
+  const count = document.getElementById('flcount');
+  if (!list || !count) return;
+  if (!FLEET) { list.innerHTML = ''; count.textContent = 'Loading…'; return; }
+  const units = FLEET.units || [];
+  const raw = (document.getElementById('flq').value || '').trim();
+  // Search is over the unit NUMBER, plus the raw feed labels so typing "AMP"
+  // or a full "AMP 958" also lands. Substring, not prefix: a rider half
+  // remembering "…58" should still find 958.
+  const q = raw.toLowerCase();
+  const hits = q ? units.filter(u =>
+    String(u.set_no || '').includes(q) ||
+    String(u.unit || '').toLowerCase().includes(q) ||
+    (u.labels || []).some(l => String(l).toLowerCase().includes(q))) : units;
+  list.innerHTML = hits.map(flRow).join('') ||
+    `<div class="flm" style="padding:10px 0">No unit matches ${esc(raw)}.</div>`;
+  // The denominator is always the full fleet, so a filtered view can never be
+  // mistaken for the whole of it.
+  count.textContent = (q ? `${hits.length} of ${units.length}` : `${units.length}`) +
+    ' unit' + (units.length === 1 ? '' : 's') +
+    (FLEET.live_count ? `, ${FLEET.live_count} running now` : '');
+}
+
+async function openFleet() {
+  if (window.closeMenu) window.closeMenu();
+  FLOPENER = document.activeElement;
+  const wrap = document.getElementById('flwrap');
+  wrap.classList.add('on');
+  document.getElementById('flq').value = '';
+  FLEET = null;
+  flRender();
+  document.getElementById('flq').focus();
+  try {
+    const d = await (await fetch('/api/fleet', {cache: 'no-store'})).json();
+    FLEET = d;
+    // The subtitle states WHICH claim the list is making. With the archive
+    // off, "every unit seen" would be a lie — it would be only what is moving
+    // this minute — so the wording changes with the data rather than staying
+    // reassuring and wrong. The order is named too, and it is the order the
+    // endpoint actually returns (set number ascending), not a flattering
+    // "newest first" that the sort does not implement.
+    document.getElementById('flsub').textContent = d.archive
+      ? 'Every unit seen, by set number'
+      : 'Archive off: only units running right now';
+    flRender();
+  } catch (e) {
+    FLEET = {units: [], live_count: 0};
+    flRender();
+    document.getElementById('flcount').textContent = 'Could not load the fleet.';
+  }
+}
+
+function closeFleet() {
+  document.getElementById('flwrap').classList.remove('on');
+  if (FLOPENER && FLOPENER.focus) FLOPENER.focus();
+}
+
+(function () {
+  const open = document.getElementById('fleetbtn');
+  if (open) open.addEventListener('click', openFleet);
+  const q = document.getElementById('flq');
+  if (q) q.addEventListener('input', flRender);
+  const c = document.getElementById('flclose');
+  if (c) c.addEventListener('click', closeFleet);
+  const wrap = document.getElementById('flwrap');
+  if (wrap) wrap.addEventListener('click', e => {
+    if (e.target.id === 'flwrap') closeFleet();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && wrap && wrap.classList.contains('on')) closeFleet();
+  });
+  // A row names a set, and a set number is a link to that train everywhere
+  // else in this app, so it is here too. Delegated: the list is rebuilt on
+  // every keystroke. Rows with no set number stay inert rather than offering
+  // a dead tap.
+  if (wrap) document.getElementById('fllist').addEventListener('click', e => {
+    const row = e.target.closest('.flrow[data-set]');
+    if (!row || !row.dataset.set) return;
+    closeFleet();
+    goToSet(row.dataset.set);
+  });
+})();
+
 
 // ---- help dialog ------------------------------------------------------------
 (function () {

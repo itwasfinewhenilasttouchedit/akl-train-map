@@ -134,20 +134,26 @@ with sync_playwright() as pw:
     ck(len(rows['ys']) == 1, 'pills share one row (no wrap)', json.dumps(rows))
     ck(rows['left'] >= 0 and rows['right'] <= 390,
        'pills fit inside 390px', json.dumps(rows))
-    # #skinbtn is position:fixed over this row. A screenshot caught the Plan
-    # pill hidden behind it, which no DOM assertion was looking for — so look
-    # for it now: no favbar pill may intersect the skin toggle.
+    # #menubtn is position:fixed over this row (it took the corner the pixel
+    # toggle used to hold, and the toggle is now a row inside the menu it
+    # opens). A screenshot once caught the Plan pill hidden behind that corner
+    # button, which no DOM assertion was looking for — so look for it now: no
+    # favbar pill may intersect the corner button.
+    # Deliberately measured against #menubtn, NOT #skinbtn: #skinbtn now lives
+    # inside a `hidden` panel, so its rect is 0x0 and an overlap test against
+    # it can no longer fail. An assertion that cannot fail is worse than none.
     clash = pg.evaluate("""() => {
-      const sk = document.getElementById('skinbtn');
-      if (!sk) return 'no skinbtn';
+      const sk = document.getElementById('menubtn');
+      if (!sk) return 'no menubtn';
       const s = sk.getBoundingClientRect();
+      if (!s.width || !s.height) return 'menubtn has no box';
       return [...document.querySelectorAll('#favbar > button')].filter(e => {
         const r = e.getBoundingClientRect();
         return !(r.right <= s.left || r.left >= s.right ||
                  r.bottom <= s.top || r.top >= s.bottom);
       }).map(e => e.id);
     }""")
-    ck(clash == [], 'no pill sits under the PIXEL toggle', json.dumps(clash))
+    ck(clash == [], 'no pill sits under the menu button', json.dumps(clash))
     # Every pill must be genuinely clickable at its own centre point, not just
     # present in the DOM — the real failure mode is a covered button.
     hit = pg.evaluate("""() => {

@@ -95,6 +95,12 @@ src/shot*.py
 # gate, not a probe -- it caught a hover/focus-vs-click race that only showed
 # up under touch emulation.
 !src/shot_bottom.py
+# shot_fleet.py gates the menu button, the pixel toggle in its new home inside
+# that menu, and the fleet search. Tracked for the same reason as the others:
+# it is the only check that the relocated toggle is still REACHABLE, which is
+# invisible to every static check -- a hidden button has correct markup, valid
+# CSS, and logs nothing.
+!src/shot_fleet.py
 src/seed_feedback.py
 
 # Licensed third-party art — "Train Station Tileset" by Pixels On Ultra.

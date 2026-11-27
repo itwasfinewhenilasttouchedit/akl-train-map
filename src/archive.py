@@ -775,6 +775,37 @@ class Archive:
         except Exception as exc:  # noqa: BLE001
             return {"enabled": True, "error": f"{type(exc).__name__}: {exc}"}
 
+    def fleet(self) -> list[dict]:
+        """Every unit label the archive has ever named, with its row span.
+
+        Deliberately NOT folded to set numbers here. The `unit` table holds
+        both real labels ("AMP 958") and the bare-number partner twins ("402")
+        that `record()` interns for `obs.partner_pk` and that never get rows of
+        their own -- measured on a 6-poll capture: 96 labels, 64 with
+        observations, 32 bare twins whose numbers all duplicate a real label.
+        Folding is the caller's job precisely because the set-number rule lives
+        in exactly one place (`feedback.set_number`), and a second copy of it
+        in here is the duplicated-rule mistake this project has already paid
+        for once.
+
+        LEFT JOIN, not an inner join: a label with zero observations is a real
+        fact about the archive ("interned as a partner, never seen alone") and
+        must not be silently dropped into looking like a unit that never
+        existed.
+        """
+        if self._db is None:
+            return []
+        try:
+            cur = self._db.execute(
+                "SELECT u.unit, count(o.unit_pk), min(o.ts), max(o.ts)"
+                " FROM unit u LEFT JOIN obs o USING(unit_pk)"
+                " GROUP BY u.unit_pk ORDER BY u.unit")
+            return [{"label": r[0], "obs": r[1] or 0,
+                     "first_ts": r[2], "last_ts": r[3]} for r in cur]
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("archive: fleet query failed: %s", exc)
+            return []
+
     def history(self, unit: str, limit: int = 200) -> list[dict]:
         """One unit over time — the query the primary key is shaped for."""
         if self._db is None:

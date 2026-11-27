@@ -68,6 +68,21 @@ def open_board(pg):
         return False
 
 
+def open_menu(pg):
+    """Open the menu, which is where the pixel toggle now lives.
+
+    The toggle moved INSIDE the menu (it used to be a bare 44px square in the
+    bottom-right corner, which is now the menu button). It is the same element
+    with the same contract, but it is behind a `hidden` panel, so every check
+    and every click on it has to open the menu first -- otherwise Playwright
+    would time out on a hidden element, or worse, a getAttribute would still
+    read the right value off an invisible control and pass without the control
+    being reachable at all.
+    """
+    pg.click("#menubtn")
+    pg.wait_for_selector("#skinbtn", state="visible", timeout=5000)
+
+
 def main():
     base, out = sys.argv[1], sys.argv[2]
     with sync_playwright() as p:
@@ -88,6 +103,13 @@ def main():
         stored = pg.evaluate("localStorage.getItem('pixelSkin')")
         check("stored preference is absent, not written on load",
               stored is None, f"got {stored!r}")
+        # The pixel toggle now lives inside the menu, so open it before
+        # inspecting the control. Checked here rather than assumed: a toggle
+        # whose attributes are right but which cannot be reached is not a
+        # working toggle.
+        open_menu(pg)
+        check("toggle is visible once the menu is open",
+              pg.is_visible("#skinbtn"))
         check("toggle button reports pressed",
               pg.get_attribute("#skinbtn", "aria-pressed") == "true")
         # The visible label is a bare "P" in BOTH states -- the button is a
@@ -466,8 +488,14 @@ def main():
 
         # ================================================================
         print("== 5. the toggle still round-trips ==")
+        # Re-open the menu: anything clicked between here and section 1 (the
+        # board, the backdrop) dismisses it via the click-away handler.
+        if not pg.is_visible("#skinbtn"):
+            open_menu(pg)
         pg.click("#skinbtn")
         pg.wait_for_timeout(900)
+        check("the menu stays open after toggling the skin",
+              pg.is_visible("#skinbtn"))
         check("one click turns the skin OFF",
               not pg.evaluate("document.body.classList.contains('pixel')"))
         check("turning off persists '0'",

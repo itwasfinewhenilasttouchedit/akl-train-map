@@ -377,6 +377,119 @@ async def api_archive(unit: str | None = None, limit: int = 200) -> JSONResponse
     return JSONResponse(a.stats())
 
 
+@app.get("/api/fleet")
+async def api_fleet() -> JSONResponse:
+    """Every unit the archive has ever seen, annotated where it is running now.
+
+    THE TWO SOURCES ARE DELIBERATELY DIFFERENT CLAIMS, AND SAY SO
+    -------------------------------------------------------------
+    `archive_units` is "this unit has existed in our data". `live` is "this
+    unit is moving right now". A unit can have either, both, or -- on a cold
+    start or with ARCHIVE_DB=off -- only the live half. `source` on each entry
+    records which, so the client never has to infer absence from a zero and
+    cannot present "we have not looked" as "it never ran".
+
+    IDENTITY IS THE SET NUMBER, folded by `feedback.set_number` -- the one
+    implementation. The archive's `unit` table holds BOTH real labels
+    ("AMP 958") and the bare-number partner twins ("402") that `record()`
+    interns for `obs.partner_pk` and that never own a row; both fold onto the
+    same set, and every label seen is reported in `labels` rather than one
+    being picked as canonical and the rest dropped.
+
+    LIVE STATUS COMES FROM `service.py` VIA `d["services"]`, not from a second
+    reading of the couple map: cars/ordered/in_service here are the SAME values
+    the map drew, because they are literally the published ones. Reimplementing
+    the consist or draw rule for this endpoint is the exact mistake a 3-phase
+    refactor removed from this codebase.
+
+    NO FLEET METADATA IS INVENTED. Build dates, depots, withdrawal status and
+    liveries are not in this data, so they are not in this response. A unit
+    that stopped appearing is reported as `last_ts` and nothing more -- the
+    archive cannot tell "withdrawn" from "stabled all week" or from "our
+    recording was off", and guessing would put a wrong fact on a screen.
+    """
+    a = archive.get()
+    arch = a.fleet() if a is not None else []
+
+    # set_no -> entry. Folded by the single set-number implementation.
+    by_set: dict[int, dict] = {}
+    unkeyed: list[dict] = []
+    for row in arch:
+        sn = feedback.set_number(row["label"])
+        if sn is None:
+            # No number means no identity to merge on. Reported, not dropped.
+            unkeyed.append({"set_no": None, "unit": row["label"],
+                            "labels": [row["label"]], "obs": row["obs"],
+                            "first_ts": row["first_ts"],
+                            "last_ts": row["last_ts"],
+                            "source": "archive", "live": None})
+            continue
+        e = by_set.get(sn)
+        if e is None:
+            e = by_set[sn] = {"set_no": sn, "unit": f"AM {sn}", "labels": [],
+                              "obs": 0, "first_ts": None, "last_ts": None,
+                              "source": "archive", "live": None}
+        if row["label"] not in e["labels"]:
+            e["labels"].append(row["label"])
+        e["obs"] += row["obs"]
+        for k, pick in (("first_ts", min), ("last_ts", max)):
+            if row[k] is not None:
+                e[k] = row[k] if e[k] is None else pick(e[k], row[k])
+
+    d = STATE.get("data") or {}
+    trains = d.get("trains") or []
+    by_id = {t.get("id"): t for t in trains}
+    live_sets: set[int] = set()
+    # `services[]` is built by service.publish() during the poll. Guarded
+    # rather than assumed: a cold start has no payload at all, and this
+    # endpoint must then report the archive honestly instead of 500ing.
+    for sv in (d.get("services") or []):
+        lead = by_id.get(sv.get("lead_id")) or {}
+        for sn in (sv.get("set_nos") or []):
+            sn = int(sn)
+            live_sets.add(sn)
+            e = by_set.get(sn)
+            if e is None:
+                # Running now, never recorded: the archive is off, or newer
+                # than the unit. "live" is the honest source label.
+                e = by_set[sn] = {"set_no": sn, "unit": f"AM {sn}",
+                                  "labels": [], "obs": 0, "first_ts": None,
+                                  "last_ts": None, "source": "live",
+                                  "live": None}
+            u = next((x for x in (sv.get("units") or [])
+                      if feedback.set_number(x) == sn), None)
+            if u and u not in e["labels"]:
+                e["labels"].append(u)
+            e["live"] = {
+                "lead_id": sv.get("lead_id"),
+                "set_nos": [int(s) for s in (sv.get("set_nos") or [])],
+                "cars": sv.get("cars"),
+                "ordered": bool(sv.get("ordered")),
+                "in_service": bool(sv.get("in_service")),
+                "route": lead.get("route") or None,
+                "from": lead.get("from") or None,
+                "to": lead.get("to") or None,
+                "trip_id": str(lead["trip_id"]) if lead.get("trip_id") else None,
+                "speed_kmh": lead.get("speed_kmh"),
+                "lat": lead.get("lat"), "lon": lead.get("lon"),
+            }
+            if e["source"] == "archive":
+                e["source"] = "both"
+
+    units = sorted(by_set.values(), key=lambda e: e["set_no"]) + unkeyed
+    for e in units:
+        e["labels"].sort()
+    return JSONResponse({
+        "archive": a is not None,
+        "warming": not trains,
+        "count": len(units),
+        "live_count": len(live_sets),
+        "archive_count": sum(1 for e in units if e["source"] != "live"),
+        "ts": d.get("ts"),
+        "units": units,
+    })
+
+
 @app.get("/api/archive/day")
 async def api_archive_day(day: str | None = None,
                           vs: str | None = None) -> JSONResponse:

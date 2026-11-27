@@ -134,6 +134,7 @@ body.pixel #fbwrap,
 body.pixel #jpwrap,
 body.pixel #stwrap,
 body.pixel #svwrap,
+body.pixel #flwrap,
 body.pixel #legend,
 body.pixel #pickwrap,
 body.pixel #sp,
@@ -419,12 +420,97 @@ body.pixel *::-webkit-scrollbar-thumb {
 }
 body.pixel *::-webkit-scrollbar-thumb:hover { background: var(--e-ao-dk); }
 
-/* --- the toggle ---------------------------------------------------------- */
-#skinbtn {
+/* --- the menu, and the skin toggle inside it -----------------------------
+   THE FIXED BOTTOM-RIGHT CORNER NOW BELONGS TO #menubtn, not to #skinbtn.
+   The skin toggle used to be the only resident of that corner; it is now one
+   row inside the menu panel the corner opens, so it is laid out by that panel
+   (static flow) and must NOT keep `position: fixed` -- a fixed child would
+   paint itself back over the map in the old spot while the row it belongs to
+   sat empty. The visual identity (44px square, single P, pressed styling) is
+   unchanged, because it is the same control. */
+#menubtn {
   position: fixed;
   z-index: 9999;
   right: 8px;
   bottom: 8px;
+  width: 44px;          /* 2.5.5 target size, same as every other control */
+  height: 44px;
+  padding: 0;
+  font: 18px/1 'Pixelify Sans', monospace;
+  cursor: pointer;
+  background: #161c24;
+  color: #e8edf2;
+  border: 2px solid #626D7E;
+  box-shadow: 3px 3px 0 0 #000;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#menubtn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 0 #000; }
+#menubtn:focus-visible { outline: 3px solid var(--e-copper); outline-offset: 2px; }
+body.pixel #menubtn {
+  background: var(--e-white);
+  color: var(--e-ao);
+  border-color: var(--e-ao);
+  box-shadow: inset 0 -3px 0 var(--e-copper), 3px 3px 0 0 rgba(21,32,46,.3);
+  font-weight: bold;
+}
+/* The panel. Anchored to the same corner and opening UPWARDS, so it never
+   runs off the bottom edge on a phone and never covers the button that owns
+   it. [hidden] does the hiding -- the attribute is the state, so there is no
+   second class to keep in sync with it. */
+#menu {
+  position: fixed;
+  z-index: 9998;
+  right: 8px;
+  bottom: 60px;         /* 44px button + its 8px inset + 8px gap */
+  min-width: 190px;
+  padding: 6px;
+  background: #161c24;
+  color: #e8edf2;
+  border: 2px solid #626D7E;
+  box-shadow: 3px 3px 0 0 #000;
+  font: 13px/1.3 'Pixelify Sans', monospace;
+}
+#menu[hidden] { display: none; }
+#menu .mrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 2px 2px 6px;
+}
+#menu .mlbl { font-size: 13px; }
+#menu .mitem {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  background: #243041;
+  color: #e8edf2;
+  border: 2px solid #626D7E;
+}
+#menu .mitem:hover { background: #2c3a4e; }
+#menu .mitem:focus-visible,
+#menu #skinbtn:focus-visible { outline: 3px solid var(--e-copper); outline-offset: 2px; }
+body.pixel #menu {
+  background: var(--e-ivory);
+  color: var(--e-sumi);
+  border-color: var(--e-ao);
+  box-shadow: inset 0 0 0 2px var(--e-white), 3px 3px 0 0 rgba(21,32,46,.26);
+}
+body.pixel #menu .mitem {
+  background: var(--e-white); color: var(--e-ao); border-color: var(--e-ao);
+}
+body.pixel #menu .mitem:hover { background: var(--e-sora-l); }
+
+#skinbtn {
   min-width: 44px;      /* 2.5.5 target size, same as every other control */
   min-height: 44px;
   padding: 0 10px;
@@ -452,6 +538,7 @@ body.pixel *::-webkit-scrollbar-thumb:hover { background: var(--e-ao-dk); }
   align-items: center;
   justify-content: center;
   line-height: 1;
+  flex: 0 0 auto;
 }
 /* Under the skin the button becomes the train itself: white body, ao text,
    copper stripe along the bottom edge. */
@@ -560,13 +647,16 @@ body.pixel #skinbtn {
      difference between one line and two. */
   body.pixel, body.pixel * { letter-spacing: 0; }
 
-  #skinbtn { font-size: 16px; right: 6px; bottom: 6px; padding: 0;
+  /* The corner is #menubtn's now; the skin toggle lives inside the panel and
+     is sized by the rules above, which need no phone override. */
+  #menubtn { font-size: 16px; right: 6px; bottom: 6px; padding: 0;
              width: 44px; height: 44px; }
+  #menu { right: 6px; bottom: 56px; }
 }
 
 /* Print: a light skin mostly survives paper; the decoration does not. */
 @media print {
-  body.pixel #sakura, #skinbtn { display: none !important; }
+  body.pixel #sakura, #menubtn, #menu { display: none !important; }
   body.pixel { background: #fff !important; color: #000 !important; }
 }
 

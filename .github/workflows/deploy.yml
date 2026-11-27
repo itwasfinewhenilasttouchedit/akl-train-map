@@ -136,6 +136,14 @@ jobs:
           # degrade to disabled rather than 500 the site, and a user agent
           # containing a double quote must not desynchronise the log parser.
           ARCHIVE_DB=off python src/test_accesslog.py
+          # /api/fleet merges the archive's unit table with service.py's live
+          # services[]. Neither half is testable in the browser: the dev
+          # server has no AT key (no live units) and the CI container's
+          # archive starts empty, so each environment exercises only one side.
+          # This suite builds a real archive from tests/fixtures/parity_caps
+          # and asserts the merge, the set-number folding, and that no fleet
+          # metadata the data does not have is invented.
+          ARCHIVE_DB=off python src/test_fleet.py
 
       - name: Build image locally
         # A Dockerfile error must surface here, not on the production host.
@@ -163,6 +171,7 @@ jobs:
           # and the step could look like a plain assertion failure instead of
           # a missing gate.
           test -f src/shot_px.py && test -f src/shot_ui4.py \
+            && test -f src/shot_fleet.py \
             || { echo "render suites missing from the checkout -- check .gitignore"; exit 1; }
           docker run -d --name akl-ci -e PORT=8080 -e ADMIN_TOKEN=ci \
             -e AT_API_KEY="$AT_API_KEY" \
@@ -175,8 +184,14 @@ jobs:
           docker exec shotci mkdir -p /out
           docker cp src/shot_px.py shotci:/s.py
           docker cp src/shot_ui4.py shotci:/s4.py
+          docker cp src/shot_fleet.py shotci:/sf.py
           docker exec shotci python /s.py http://127.0.0.1:8080 /out
           docker exec shotci python /s4.py http://127.0.0.1:8080 /out
+          # The menu, the relocated pixel toggle and the fleet search. Note
+          # that in THIS environment the fleet list comes from the LIVE feed,
+          # not the archive: the container's archive starts empty. The gate
+          # asserts only what holds in both environments and prints the mix.
+          docker exec shotci python /sf.py http://127.0.0.1:8080 /out
 
       - name: Collect render screenshots
         # Uploaded even when the suite fails -- a failed visual run is exactly
