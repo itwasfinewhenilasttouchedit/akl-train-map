@@ -35,6 +35,7 @@ import consist_at   # noqa: E402
 import order_latch  # noqa: E402
 import journey   # noqa: E402
 import feedback  # noqa: E402
+import pages     # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1110,13 +1111,57 @@ async def robots_txt() -> Response:
     return Response(body, media_type="text/plain")
 
 
+# ------------------------------------------------- crawlable station/line pages
+# Until now the whole site was one URL, so Google could index exactly one page
+# and nobody could link to "Britomart". These are server-rendered HTML with
+# their own title, description and canonical -- a crawler and a rider on a bad
+# connection both get the answer as text, with no Leaflet and no app shell.
+#
+# Deliberately NOT /train/am-701. A unit page is a page about an AM-class set,
+# which is exactly the metadata a rider does not think in; see src/pages.py.
+#
+# These are the only HTML routes that touch the feedback DB, so they take the
+# same no-cache shell policy: a cached page claiming a train is clean while the
+# live map warns is worse than no page at all.
+
+@app.get("/station/{slug}")
+async def station_page(slug: str) -> Response:
+    # Old/colloquial names 301 to the current slug: Britomart -> Waitemata etc.
+    # These are the names people still search, and a 404 would lose exactly
+    # the traffic these pages exist to catch.
+    want = (slug or "").strip().lower()
+    if want in pages.ALIASES:
+        return RedirectResponse(f"/station/{pages.ALIASES[want]}", status_code=301)
+    st = pages.station_by_slug(slug)
+    if not st:
+        return Response("Unknown station.", status_code=404,
+                        media_type="text/plain")
+    body = pages.station_page(st, feedback.summary(_live_trips()), _consist_map())
+    return Response(body, media_type="text/html; charset=utf-8",
+                    headers=_SHELL_CACHE)
+
+
+@app.get("/line/{slug}")
+async def line_page(slug: str) -> Response:
+    # Colloquial names 301 in: AT through-routes Eastern and Western as one
+    # route id, so /line/western redirects rather than rendering a second page
+    # with an identical station list (duplicate content). See src/pages.py.
+    want = (slug or "").strip().lower()
+    if want in pages.LINE_ALIASES:
+        return RedirectResponse(f"/line/{pages.LINE_ALIASES[want]}", status_code=301)
+    if slug not in pages.LINES:
+        return Response("Unknown line.", status_code=404,
+                        media_type="text/plain")
+    body = pages.line_page(slug, feedback.summary(_live_trips()), _consist_map())
+    return Response(body, media_type="text/html; charset=utf-8",
+                    headers=_SHELL_CACHE)
+
+
 @app.get("/sitemap.xml")
 async def sitemap_xml() -> Response:
-    body = ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-            '<url><loc>https://hoki.co.nz/</loc><changefreq>daily</changefreq></url>\n'
-            '</urlset>\n')
-    return Response(body, media_type="application/xml")
+    # Built from the station list and LINES, so a new station in a rebuilt
+    # GTFS appears without anyone remembering to edit this.
+    return Response(pages.sitemap(), media_type="application/xml")
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")

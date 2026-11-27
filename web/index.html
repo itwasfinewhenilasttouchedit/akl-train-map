@@ -774,9 +774,7 @@
 
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
-<!-- Resolve the skin BEFORE first paint — see the note after <body><section id="about-seo" class="sr-only"><h2>About Hoki Trains</h2>
-<p>Hoki Trains shows Auckland's electric trains moving on a live map, using Auckland Transport's real-time data. Covers the Western, Eastern, Southern and Onehunga lines. Pick a station for upcoming departures, plan a trip, or rate and report a carriage on an AM unit (for example AM 701) for smells, crowding, rowdy behaviour, or something good.</p></section>
- below.
+<!-- Resolve the skin BEFORE first paint — see the note after <body> below.
      Sets only the page ground on <html>, which is the one surface that paints
      before any markup exists and therefore the one that can flash. -->
 <script>
@@ -814,6 +812,36 @@
     if (on) document.body.classList.add('pixel');
   })();
 </script>
+
+<!-- Visually-hidden page description, for crawlers and screen readers.
+     The map itself is a canvas of markers with nothing indexable in it, so
+     without this the home page has no prose at all.
+
+     THIS WAS BROKEN FROM THE DAY IT SHIPPED. It had been inserted by matching
+     on "<body>", and the first "<body>" in this file is the one INSIDE the
+     comment above the pre-paint script — so the whole section landed inside
+     an HTML comment and was never in the DOM. Verified with
+     document.getElementById('about-seo') === null. Anchor markup on real
+     tags, not on a string that also appears in prose.
+
+     Wording follows the rest of the site: carriages, not unit numbers. The
+     station and line pages are named because they are the crawlable surfaces
+     this text should hand a reader on to. -->
+<section id="about-seo" class="sr-only">
+  <h2>About Hoki Trains</h2>
+  <p>Hoki Trains shows Auckland's electric trains moving on a live map, using
+  Auckland Transport's real-time data. It covers the Western, Eastern, Southern
+  and Onehunga lines and Te Huia. Pick a station for upcoming departures, plan a
+  trip, or see which carriages other riders are avoiding — a smell, a mess,
+  crowding, rowdy behaviour, or something good. A six-carriage train is two
+  halves joined, and a report tells you which half and which carriage, not just
+  which train.</p>
+  <p>Every station has its own page, such as
+  <a href="/station/waitemata">Waitemata (Britomart)</a> and
+  <a href="/station/newmarket">Newmarket</a>, and so does every line, such as
+  the <a href="/line/southern-onehunga">Southern Line</a> and the
+  <a href="/line/eastern-western">Eastern and Western Line</a>.</p>
+</section>
 <!-- Pixel skin toggle. A real <button>, so it is keyboard-reachable and
      announced as a toggle; aria-pressed is maintained in JS.
      The static attributes say ON because the skin is now the DEFAULT — if the
@@ -3752,6 +3780,33 @@ async function loadTicker() {
 }
 loadTicker();
 setInterval(loadTicker, 60000);
+
+// ---------------------------------------------- deep link from a station page
+// /station/britomart links here as /?station=britomart. Without this the CTA
+// on a crawlable page would drop the rider on a generic map and make them find
+// their own station again — the link would promise departures and deliver a
+// map of Auckland.
+//
+// Resolved against the station LIST, not by un-slugifying: the slug is lossy
+// ("Baldwin Ave" -> "baldwin-ave", "Maungawhau" -> "maungawhau"), so reversing
+// it would mangle any name whose punctuation or casing is not mechanical.
+// An unknown slug is ignored silently; the map is still a correct answer.
+//
+// The query string is then stripped with replaceState so a reload, a bookmark
+// or a share does not re-trigger the board, and so / stays the canonical URL
+// of the map itself.
+(async () => {
+  const want = new URLSearchParams(location.search).get('station');
+  if (!want) return;
+  const slug = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+                      .replace(/^-|-$/g, '');
+  try {
+    const list = await ensureStations();
+    const hit = (list || []).find(s => slug(s.name) === slug(want));
+    history.replaceState(null, '', location.pathname);
+    if (hit) openBoard(hit.name);
+  } catch (e) { console.warn('station deep link failed', e); }
+})();
 </script>
 </body>
 </html>
