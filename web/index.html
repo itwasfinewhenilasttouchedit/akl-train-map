@@ -654,8 +654,24 @@
   .dcar { position:relative; flex:1; min-width:0; line-height:0;
           border-radius:4px; padding:2px 1px 0; background:transparent; }
   .dcar svg { width:100%; height:auto; display:block; }
-  /* The coupled set's cars: present for orientation, but not ours to judge. */
-  .dcar.other { opacity:.42; }
+  /* THE OTHER HALF IS NOT DIMMED.
+     It used to be `opacity:.42`, commented "present for orientation, but not
+     ours to judge" — the old premise, where the partner was a different set
+     we had no standing to report on. That premise is gone: this is ONE train
+     with an open gangway, and the card now tells the rider which half to sit
+     in.
+     Dimming was wrong twice. It contradicted the sentence beside it, and —
+     measured — it faded the WARNING: a reported carriage in the far half
+     shaded rgba(213,41,35,.34) inside a .42-opacity box composites to ~.14
+     effective alpha, so the one carriage to avoid was the faintest thing in
+     the drawing. Decoration must never dim data.
+     The seam is shown by GEOMETRY instead: a wider gap at the coupling, which
+     is what the train actually looks like, plus the cab rake already drawn at
+     cars 3 and 4 facing each other. */
+  .dcar.seam { margin-left:7px; }
+  .dcar.seam::before { content:""; position:absolute; left:-5px; top:38%;
+                       width:3px; height:24%; background:var(--muted);
+                       border-radius:1px; opacity:.6; }
   .dcar.bad.lvl1 { background:rgba(213,41,35,.17); }
   .dcar.bad.lvl2 { background:rgba(213,41,35,.34); }
   .dnum { position:absolute; left:50%; transform:translateX(-50%);
@@ -2240,7 +2256,12 @@ function trainDiagram(unit) {
     const cnt = isMine ? (rel ? (cars[String(rel)] | 0) : 0)
                        : (pcars[String(rel)] | 0);
     const lvl = cnt === 0 ? 0 : (cnt >= worst && worst > 0 ? 2 : 1);
-    out += `<div class="dcar${isMine ? '' : ' other'}${cnt ? ' bad lvl' + lvl : ''}"
+    // `seam` marks the coupling: a wider gap plus a coupler stub between the
+    // two halves. This replaced dimming the far half (`.dcar.other`, now
+    // removed) -- geometry shows the join without fading the one carriage
+    // the rider is being told to avoid.
+    const seam = (n === 6 && i === 4) ? ' seam' : '';
+    out += `<div class="dcar${seam}${cnt ? ' bad lvl' + lvl : ''}"
        title="Carriage ${i} of ${n}${cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ''}${
           isMine ? '' : ' (other half)'}">
        ${carSvg(cabEnd, variant, false)}
@@ -2260,7 +2281,8 @@ function trainDiagram(unit) {
       ${anyBad ? '<span class="dkey"><i class="sw"></i> reported</span>' : ''}
       ${/* "cars 1–3 = AM 593" was depot bookkeeping in a drawing whose whole
             job is to show a rider where to stand. The halves still need a
-            visible seam — the .other class dims the partner's three — but it
+            visible seam — a wider gap and a coupler stub at carriage 4 — but
+            it
             is labelled as a join, not as a set number. The numbers appear
             once, under the verdict, as provenance. */
         ordered ? '<span class="dkey dim2">two halves joined</span>' : ''}
