@@ -260,6 +260,11 @@
   .svalert.up { background:#1b2430; color:#9ec5e8; }
   .svalert b { display:block; }
   .svnone { margin-top:8px; font-size:11.5px; color:var(--muted); }
+  /* Set numbers, demoted. They are provenance — a report files against a set,
+     and the number is the only handle we share with AT and the depot — but to
+     a rider on a platform it is one train, so they must not lead the card. */
+  .svsets { margin-top:6px; font-size:10.5px; color:var(--muted);
+            font-variant-numeric:tabular-nums; }
   #jpwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
             display:none; align-items:center; justify-content:center; }
   #jpwrap.on { display:flex; }
@@ -1891,10 +1896,11 @@ function popupFor(t) {
     : `<div class="pop"><b>${esc(t.dest || t.line)}</b>
     ${t.unit ? ` <span class="unit">${esc(t.unit)}</span>` : ''} ${flagHtml(t.unit)} ${peeHtml(t.unit)}<br>
     <small>${esc(t.line)}</small>${
-      // A 6-car is two units under one trip. The rider may well board the half
-      // whose number is NOT the one AT attached the trip to, so name both.
+      // A 6-car is two units under one trip. The rider does not need the set
+      // numbers here — reportBlock() names them once, as provenance — only
+      // that this train is twice as long as usual.
       t.consist === 6 && t.partner_set
-        ? ` <small class="dim">&middot; 6 cars, sets ${esc(t.unit && setNo(t.unit) || '?')} + ${esc(t.partner_set)}${
+        ? ` <small class="dim">&middot; 6 carriages${
             t.consist_source === 'at' ? '' : ' (inferred)'}</small>`
         : ''}<br>
     ${(t.origin || t.terminus)
@@ -1970,46 +1976,130 @@ function peeHtml(unit) {
   return p ? `<span class="pee ${p.cls}">${esc(p.label)}</span>` : '';
 }
 
-// THE OTHER HALF OF A 6-CAR.
+// THE OTHER HALF OF A 6-CAR — superseded by trainMakeup()/makeupHtml().
 //
-// Reports are keyed on the set, but a rider boards a SERVICE. When two sets
-// are coupled, AT names only one of them against the trip — so AM 593 coupled
-// to AM 851 showed a clean panel while 851's severe report sat one carriage
-// away, through an open gangway, on the train the rider was about to get on.
-// The board flagged it under 851 and the service panel did not, which is the
-// map contradicting itself.
+// The original bug: reports are keyed on the set, but a rider boards a
+// SERVICE. AT names only one set against a trip, so AM 593 coupled to AM 851
+// showed a clean panel while 851's severe report sat one carriage away,
+// through an open gangway, on the train the rider was about to get on.
 //
-// This returns the partner's summary when the partner — not this set — is the
-// one with reports. Deliberately NOT merged into flagFor(): the two sets stay
-// distinct everywhere (the diagram shades the right carriages, the report form
-// still files against the set the rider names), and a warning that says "the
-// other half" is honest in a way that silently inheriting a fault is not.
-function partnerFlag(unit) {
-  const sn = setNo(unit);
-  if (!sn) return null;
-  const cp = COUPLES[String(sn)];
-  const ps = cp && cp.partner ? String(cp.partner) : null;
-  if (!ps || (cp.consist | 0) !== 6) return null;
-  const pf = FB[ps] || null;
-  if (!pf || !hasFault(pf)) return null;
-  // position is THIS set's half, so the partner occupies the other one. Only
-  // claim carriages when the order is actually known.
-  const pos = (cp.position === 'front') ? 'rear'
-            : (cp.position === 'rear') ? 'front' : null;
-  return { set: ps, flag: pf, pos,
-           cars: pos === 'front' ? [1, 2, 3] : pos === 'rear' ? [4, 5, 6] : null };
+// `partnerFlag`/`partnerWarnText` fixed that by bolting an "Other half: …"
+// paragraph on after this set's own verdict — which fixed the honesty and
+// kept the depot's framing: two sets, two paragraphs, for one train. The
+// rider's question is "which carriages do I avoid", so both halves now go
+// through ONE verdict (see makeupHtml) that talks in front/back carriages.
+// The sets are still distinct where it matters — the report form files
+// against the set the rider names, the diagram shades each half's own
+// reported carriages, and the numbers are printed once as provenance.
+
+// WHAT THE TRAIN IS MADE OF — in carriages, not unit numbers.
+//
+// The service card used to recite metadata: "Train AM 593", "6 cars, sets 593
+// + 851", "2 open smell report(s) for set 701". A rider standing on a platform
+// has one question — which carriages do I avoid — and to them it is just a
+// train. So the card now says how long the train is, which HALF is bad, and
+// where to sit. The set numbers survive as a dim footnote because a report is
+// filed per set and that number is the only handle we share with AT and the
+// depot; they are provenance, not the headline.
+function cap1(s) {
+  s = String(s || '');
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-// One sentence, used by the popup and the service panel so they cannot drift.
-function partnerWarnText(pw) {
-  if (!pw) return '';
-  const st = peeStatus('AM ' + pw.set);
-  const n = pw.flag.n_neg != null ? pw.flag.n_neg : pw.flag.n;
+// One half's verdict, in rider words. `car` is only claimed when the reports
+// agree on a single carriage — "worst car 2" out of a scatter across all three
+// is a number pretending to be advice.
+//
+// `base` is the absolute position of this half's first carriage, so a report
+// filed as car 2 of the REAR set is reported as car 5. A car number must match
+// the one shaded on the diagram beside it or the card contradicts itself.
+function halfVerdict(sn, base) {
+  const f = FB[String(sn)] || null;
+  if (!f || !hasFault(f)) return { bad: false, what: 'no reports' };
+  const st = peeStatus('AM ' + sn);
+  const n = f.n_neg != null ? f.n_neg : f.n;
   const what = st ? st.label.toLowerCase()
-                  : (n === 1 ? '1 open report' : n + ' open reports');
-  const where = pw.cars ? `cars ${pw.cars[0]}\u2013${pw.cars[2]}` : 'the other half';
-  return `Coupled to AM ${pw.set} (${where}), which has ${what}. `
-       + 'This is one 6-car train, so you can walk between them.';
+    : f.top_fault_label ? f.top_fault_label.toLowerCase() + ' reported'
+    : (n === 1 ? '1 open report' : n + ' open reports');
+  const keys = (f.cars && Object.keys(f.cars)) || [];
+  // No base = the halves could not be ordered, so no absolute carriage number
+  // exists. Say nothing rather than number from a guessed front.
+  return { bad: true, what, n,
+           car: (base && keys.length === 1)
+             ? ('carriage ' + (base + (+keys[0] - 1))) : null };
+}
+
+// Front half first, always — that is the order the rider sees it arrive in.
+// When AT named a couple but we could not order it from GPS (about half of
+// them) `ordered` is false and no half may be called front or back.
+function trainMakeup(unit) {
+  const sn = setNo(unit);
+  if (!sn) return null;
+  const cp = COUPLES[String(sn)] || null;
+  const six = !!(cp && cp.partner && (cp.consist | 0) === 6);
+  if (!six) {
+    return { cars: 3, six: false, ordered: true, head: '3 carriages',
+             sets: [String(sn)],
+             halves: [{ label: 'this train', cars: [1, 2, 3],
+                        v: halfVerdict(sn, 1), set: String(sn) }] };
+  }
+  const ps = String(cp.partner);
+  const ordered = cp.position === 'front' || cp.position === 'rear';
+  const mineFront = cp.position === 'front';
+  const lbl = front => front ? 'front 3 carriages' : 'back 3 carriages';
+  // When the order is unknown neither half may be numbered at all: calling an
+  // unplaced carriage "4" would point the rider at the wrong end of the train.
+  const halves = [
+    { label: ordered ? lbl(mineFront) : 'one half',
+      cars: ordered ? (mineFront ? [1, 2, 3] : [4, 5, 6]) : null,
+      v: halfVerdict(sn, ordered ? (mineFront ? 1 : 4) : null),
+      set: String(sn) },
+    { label: ordered ? lbl(!mineFront) : 'the other half',
+      cars: ordered ? (mineFront ? [4, 5, 6] : [1, 2, 3]) : null,
+      v: halfVerdict(ps, ordered ? (mineFront ? 4 : 1) : null),
+      set: ps },
+  ];
+  if (ordered && !mineFront) halves.reverse();
+  return { cars: 6, six: true, ordered, sets: [String(sn), ps],
+           head: '6 carriages (two halves joined)', halves };
+}
+
+// The verdict block for the service card. Replaces the old per-set recital AND
+// the separate "other half" paragraph: one train, one answer.
+function makeupHtml(unit) {
+  const mk = trainMakeup(unit);
+  if (!mk) return '';
+  const bad = mk.halves.filter(h => h.v.bad);
+  let out = '';
+  if (!bad.length) {
+    // Wording kept verbatim: src/shot_couple.py asserts a clean 6-car still
+    // reads as clean, which is the false-alarm direction of the same bug.
+    out += '<div class="svnone">No open reports for this train.'
+         + (mk.six ? ' Both halves are clean.' : '') + '</div>';
+  } else if (!mk.six) {
+    const v = bad[0].v;
+    out += `<div class="svalert"><b>${esc(cap1(v.what))}</b>${
+      v.car ? 'Worst in ' + esc(v.car) + '.' : ''}</div>`;
+  } else {
+    const clean = mk.halves.filter(h => !h.v.bad);
+    const head = bad.length === 2 ? 'Reports in both halves'
+      : cap1(bad[0].label) + ': ' + bad[0].v.what;
+    out += `<div class="svalert"><b>${esc(head)}</b>`
+      + esc(mk.halves.map(h => cap1(h.label) + ' \u2014 ' + h.v.what
+            + (h.v.car ? ', worst ' + h.v.car : '') + '.').join(' '))
+      + ' ' + esc(!mk.ordered
+          ? 'It is one 6-car train, so you can walk between them \u2014 but we '
+            + 'cannot tell yet which end of the train the reported half is.'
+          : clean.length
+            ? 'It is one train, so you can walk between them \u2014 sit in the '
+              + clean[0].label.replace(' 3 carriages', '') + ' half.'
+            : 'It is one train, so you can walk between them, but both halves '
+              + 'have reports.')
+      + '</div>';
+  }
+  out += `<div class="svsets">${mk.six ? 'Sets' : 'Set'} AM ${
+    mk.sets.map(esc).join(' + AM ')} \u00b7 reports are filed per set</div>`;
+  return out;
 }
 
 // Arrivals rows are narrow; a full "suspected pee train" label would push the
@@ -2123,10 +2213,8 @@ function trainDiagram(unit) {
                        : (pcars[String(rel)] | 0);
     const lvl = cnt === 0 ? 0 : (cnt >= worst && worst > 0 ? 2 : 1);
     out += `<div class="dcar${isMine ? '' : ' other'}${cnt ? ' bad lvl' + lvl : ''}"
-       title="${isMine ? `Car ${rel} of 3 (AM ${esc(String(sn))})${
-          cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ' \u2014 no reports'}`
-        : `Car ${rel} of 3 (AM ${esc(String(cp && cp.partner || '?'))})${
-          cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ''}`}">
+       title="Carriage ${i} of ${n}${cnt ? ` \u2014 ${cnt} report${cnt > 1 ? 's' : ''}` : ''}${
+          isMine ? '' : ' (other half)'}">
        ${carSvg(cabEnd, variant, false)}
        <span class="dnum">${i}</span>
        ${cnt ? `<span class="dflag" aria-hidden="true">${cnt}</span>` : ''}
@@ -2142,7 +2230,12 @@ function trainDiagram(unit) {
     <div class="dlegend">
       <span class="dfront">&#9654; front</span>
       ${anyBad ? '<span class="dkey"><i class="sw"></i> reported</span>' : ''}
-      ${ordered ? `<span class="dkey dim2">cars ${mine[0]}&ndash;${mine[2]} = AM ${esc(String(sn))}</span>` : ''}
+      ${/* "cars 1–3 = AM 593" was depot bookkeeping in a drawing whose whole
+            job is to show a rider where to stand. The halves still need a
+            visible seam — the .other class dims the partner's three — but it
+            is labelled as a join, not as a set number. The numbers appear
+            once, under the verdict, as provenance. */
+        ordered ? '<span class="dkey dim2">two halves joined</span>' : ''}
       ${six && !ordered ? '<span class="dkey dim2">6-car: we can&rsquo;t tell which half yet</span>' : ''}
       ${six_unk ? `<span class="dkey dim2">${six_unk} report${six_unk > 1 ? 's' : ''} car unknown</span>` : ''}
     </div>
@@ -2164,21 +2257,19 @@ function reportBlock(unit) {
     ${trainDiagram(unit)}
     ${np ? `<div class="rowdy-line">\u2620 ${np} behaviour report${np>1?'s':''}
        on this service <span class="dim2">\u2014 clears at the last stop</span></div>` : ''}
-    ${cp && cp.partner ? `<div class="couple">${(cp.consist|0) || 6}-car service &middot; ${
-       cp.position === 'front' ? 'front half (cars 1&ndash;3)'
-       : cp.position === 'rear' ? 'rear half (cars 4&ndash;6)' : 'coupled'}
-       &middot; with AM ${esc(cp.partner)}
+    ${/* What the train is made of, and which part to avoid — in carriages,
+          not unit numbers. Replaces both the old "6-car service · front half
+          (cars 1–3) · with AM 851" recital AND the separate "Other half:"
+          paragraph, which between them described one physical train twice in
+          depot language. Shared with the service card so the two cannot
+          drift. See makeupHtml(). */
+      makeupHtml(unit)}
+    ${cp && cp.partner ? `<div class="couple">Joined train
        ${cp.source === 'at'
          ? (cp.position
-             ? `<span class="inf" title="Front/rear is estimated from each half&rsquo;s position.">i</span>`
-             : `<span class="inf" title="Car count and set numbers from Auckland Transport.">i</span>`)
+             ? `<span class="inf" title="Front/back is estimated from each half&rsquo;s position.">i</span>`
+             : `<span class="inf" title="Car count and set numbers from Auckland Transport; which end is which is not known yet.">i</span>`)
          : `<span class="inf" title="Inferred from train positions, not published by AT">?</span>`}</div>` : ''}
-    ${/* The coupled half's own reports. A 6-car is ONE train with an open
-          gangway, so a rider standing on the platform needs this even though
-          the report is filed against the other set. See partnerFlag(). */
-      (() => { const pw = partnerFlag(unit); return pw
-        ? `<div class="avoid"><b>Other half:</b> ${esc(partnerWarnText(pw))}</div>`
-        : ''; })()}
     ${/* The diagram above shades the offending carriage, so repeating
           "Most reports: Car 2 of 3" underneath is the same fact twice. Keep
           the sentence ONLY when there is no per-car breakdown to draw. */
@@ -3139,49 +3230,32 @@ function openService(i) {
   if (!x.cancelled) body += fact('In', mins + ' min');
   body += fact('Platform', x.platform);
   body += fact('Destination', x.dest);
-  body += fact('Train', sn ? 'AM ' + sn : null);
+  // "Train AM 593" was the top of the metadata problem: to a rider it is just
+  // a train, and what they need is its LENGTH so they know where to stand.
+  const mk = sn ? trainMakeup('AM ' + sn) : null;
+  body += fact('Train', mk ? (mk.cars === 6 ? '6 carriages (two halves joined)'
+                                            : '3 carriages') : null);
   if (!sn) {
     body += '<div class="svnone">AT has not named a train for this service '
-          + 'yet, so we can\u2019t tell you which unit it will be.</div>';
+          + 'yet, so we can\u2019t tell you which carriages to avoid.</div>';
   }
   if (x.skipped_stops && x.skipped_stops.length) {
     body += `<div class="svalert"><b>Not stopping everywhere</b>
              Runs past ${esc(x.skipped_stops.join(', '))}.</div>`;
   }
-  // The unit's own history, when we know the unit. Same wording and thresholds
-  // as the map popup — a board and a popup must never disagree about a train.
+  // What the train is MADE OF, and which part to avoid. One train, one
+  // verdict — see makeupHtml(). This deliberately replaces the old block,
+  // which recited each set's own report count and then added a separate
+  // "other half" paragraph: two paragraphs about one physical train, in
+  // depot language. `risk` is not consulted for the verdict because it only
+  // ever reaches state 'known' for a SMELL fault (see attach_risk in
+  // src/journey.py), so any other open report arrived here as 'no-data'.
+  // FB is the honest source, and it is what the map marker already warns on.
   if (sn) {
-    const f = FB[sn] || null;
-    // The partner's reports matter as much as this set's: a 6-car is one train
-    // with an open gangway. See partnerFlag().
-    const pw = partnerFlag('AM ' + sn);
-    let said = false;
-    if (r.state === 'known') {
-      body += `<div class="svalert"><b>${esc(
-        (peeStatus('AM ' + sn) || {}).label || 'Reported')}</b>${
-        esc(r.why || '')}${r.car_label ? ' \u2014 worst: ' + esc(r.car_label) : ''}</div>`;
-      said = true;
-    } else if (f && hasFault(f)) {
-      // `risk` only ever reaches state 'known' for a SMELL fault (see
-      // attach_risk in src/journey.py), so a set with any other open report
-      // arrives here as 'no-data'. FB is the honest source for "this unit has
-      // a report", and it is what the map marker already warns on.
-      const n = f.n_neg != null ? f.n_neg : f.n;
-      const st = peeStatus('AM ' + sn);
-      body += `<div class="svalert"><b>${esc(st ? st.label
-                 : n + ' open report' + (n > 1 ? 's' : ''))}</b>
-               ${esc(st ? n + ' open report' + (n > 1 ? 's' : '') : '')}
-               for AM ${esc(sn)}${f.top_category_label
-                 ? ' \u2014 ' + esc(f.top_category_label.toLowerCase()) : ''}${
-               f.worst_car_label ? ', worst: ' + esc(f.worst_car_label) : ''}.</div>`;
-      said = true;
-    }
-    if (pw) {
-      body += `<div class="svalert"><b>Other half of this train</b>${
-        esc(partnerWarnText(pw))}</div>`;
-      said = true;
-    }
-    if (!said) body += '<div class="svnone">No open reports for this train.</div>';
+    body += makeupHtml('AM ' + sn);
+    // The drawn train, so "front 3 carriages" has something to point at. Same
+    // helper the popup uses, so the two cannot disagree.
+    body += trainDiagram('AM ' + sn);
   }
   // Service alerts in force for this route or station. THE thing a rider needs
   // before boarding, and until now reachable only via the bell.
