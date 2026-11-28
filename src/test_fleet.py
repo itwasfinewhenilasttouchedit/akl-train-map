@@ -208,6 +208,82 @@ def main() -> int:
                 if w in blob]
     ck(not invented, "no fleet metadata the data does not have", str(invented))
 
+    # ---- the TTL cache for the archive half ----------------------------
+    # Added when the production query was measured at ~455 ms over 1.25 M obs
+    # rows. Two properties have to hold together, and they pull against each
+    # other: the expensive half must NOT re-run, while the live half MUST be
+    # recomputed. A cache that satisfies only the first is a bug that serves
+    # yesterday's running trains.
+    calls = {"n": 0}
+    real_fleet = a.fleet
+    # Derived from the server's own TTL, not hardcoded: if someone retunes
+    # _FLEET_TTL_S, this check follows instead of silently going vacuous.
+    _TTL_JUMP = server._FLEET_TTL_S + 1
+
+    def counting_fleet():
+        calls["n"] += 1
+        return real_fleet()
+
+    a.fleet = counting_fleet
+    server._fleet_cache = (0.0, [])          # cold
+
+    r1 = json.loads(asyncio.get_event_loop()
+                    .run_until_complete(server.api_fleet()).body)
+    after_first = calls["n"]
+    r2 = json.loads(asyncio.get_event_loop()
+                    .run_until_complete(server.api_fleet()).body)
+    ck(after_first == 1, f"a cold call queries the archive once ({after_first})")
+    ck(calls["n"] == 1,
+       f"a second call inside the TTL does NOT re-query ({calls['n']})")
+    ck(r1["count"] == r2["count"] and r1["count"] > 0,
+       f"the cached call returns the same fleet ({r2['count']})")
+
+    # The live half must still move. Withdraw every running service and the
+    # SAME cached archive rows must now report nobody live -- proving the live
+    # annotation is recomputed per request, not frozen into the cache.
+    stashed = server.STATE["data"]
+    server.STATE["data"] = {"ts": stashed.get("ts"), "trains": [], "services": []}
+    r3 = json.loads(asyncio.get_event_loop()
+                    .run_until_complete(server.api_fleet()).body)
+    ck(calls["n"] == 1,
+       f"still no re-query -- the archive half stayed cached ({calls['n']})")
+    ck(r3["live_count"] == 0,
+       f"live status is recomputed, not cached ({r3['live_count']})")
+    ck(all(u["live"] is None for u in r3["units"]),
+       "no unit keeps a stale live block when nothing is running")
+    ck(r3["count"] == r1["count"],
+       f"the archive half is unchanged by the live swing ({r3['count']})")
+
+    # Restore the running payload: the previous request must not have mutated
+    # the cached rows. This is the leak the cache is shaped to prevent -- it
+    # caches RAW rows, not the folded dicts the live merge writes into.
+    server.STATE["data"] = stashed
+    r4 = json.loads(asyncio.get_event_loop()
+                    .run_until_complete(server.api_fleet()).body)
+    ck(r4["live_count"] == r1["live_count"] and r4["live_count"] > 0,
+       f"live status returns intact after the swing ({r4['live_count']})")
+    ck(r4["count"] == r1["count"],
+       "the cached rows were not mutated by a previous request's live merge")
+
+    # An expired TTL must actually re-query, or the "cache" is a one-shot
+    # memo that never notices a new unit.
+    #
+    # The TTL is exercised through the REAL clock arithmetic, by moving the
+    # module's own `time.time` forward past the window. An earlier version of
+    # this check just overwrote `_fleet_cache` with a 0.0 expiry, which
+    # bypassed the arithmetic and still passed when the TTL was sabotaged to
+    # `float('inf')` -- an assertion that could not fail.
+    real_time = server.time.time
+    server.time.time = lambda: real_time() + _TTL_JUMP
+    try:
+        json.loads(asyncio.get_event_loop()
+                   .run_until_complete(server.api_fleet()).body)
+    finally:
+        server.time.time = real_time
+    ck(calls["n"] == 2,
+       f"a TTL expiry {_TTL_JUMP}s later re-queries ({calls['n']})")
+    a.fleet = real_fleet
+
     # Archive off must still answer, honestly: live-only, and saying so.
     archive._ARCHIVE = None
     resp2 = asyncio.get_event_loop().run_until_complete(server.api_fleet())

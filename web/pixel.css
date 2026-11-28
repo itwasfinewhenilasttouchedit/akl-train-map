@@ -563,7 +563,16 @@ body.pixel #skinbtn {
    deeper rose 1px outline and sits at higher opacity than the dark cut.
    Decorative: aria-hidden in the DOM, pointer-events:none, and entirely
    inside the reduced-motion guard — a user who asks for stillness gets an
-   empty container, not a petal frozen mid-air. */
+   empty container, not a petal frozen mid-air.
+
+   z-index 890 puts the petals UNDER every dialog (#jpwrap 900 … #flwrap
+   960) and over the map. This is polish, not a bugfix, and the distinction
+   matters: the petals ANIMATE, so a petal crossing the Fleet panel is
+   visible for a fraction of a second and a reader is not actually denied
+   the digit. A screenshot freezing one over the unit count looked far
+   worse than the live page ever does — a still frame shows where a moving
+   thing CAN be, not what a user experiences. Decoration drifting across a
+   modal is merely untidy, so it is fixed on those grounds alone. */
 #sakura { display: none; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -571,7 +580,7 @@ body.pixel #skinbtn {
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 9997;
+    z-index: 890;
     pointer-events: none;
     overflow: hidden;
   }

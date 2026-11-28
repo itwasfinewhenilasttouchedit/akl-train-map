@@ -326,12 +326,84 @@ def run(ctx, tag):
     return errs, pg
 
 
+def check_decoration_under_dialogs(ctx, tag):
+    """Decorative petals stay below the dialog layer.
+
+    Scope honestly: this is a tidiness check, NOT a legibility one. The
+    petals animate, so one crossing the Fleet panel is gone in well under a
+    second and a reader still gets the number. A screenshot made it look
+    like obscured data because a still frame shows where a moving thing can
+    be, not what a user experiences.
+
+    It is here to stop the z-index drifting back above the dialogs by
+    accident, and it is cheap. Compared by computed z-index rather than
+    hit-testing: #sakura is pointer-events:none, so elementFromPoint looks
+    straight through it and would pass regardless.
+    """
+    pg = ctx.new_page()
+    pg.goto(BASE, wait_until="domcontentloaded")
+    pg.wait_for_timeout(1200)
+    pg.click("#menubtn")
+    pg.wait_for_timeout(250)
+    pg.click("#fleetbtn")
+    pg.wait_for_timeout(700)
+
+    z = pg.evaluate("""() => {
+      const zi = el => {
+        if (!el) return null;
+        const v = getComputedStyle(el).zIndex;
+        return v === 'auto' ? null : parseInt(v, 10);
+      };
+      const sak = document.querySelector('#sakura');
+      const vis = sak && getComputedStyle(sak).display !== 'none';
+      return {
+        sakura: zi(sak),
+        sakuraVisible: !!vis,
+        fleet: zi(document.querySelector('#flwrap')),
+        dialogs: ['#flwrap','#jpwrap','#stwrap','#svwrap','#fbwrap']
+          .map(s => [s, zi(document.querySelector(s))])
+          .filter(([, v]) => v !== null),
+      };
+    }""")
+
+    # The petals are skin-gated and reduced-motion-gated. If they are not
+    # painting at all in this run, say so rather than passing silently --
+    # a check that quietly tests nothing is the failure mode this project
+    # has already paid for once.
+    if not z["sakuraVisible"] or z["sakura"] is None:
+        ck(f"{tag}: decoration layer present to test", False,
+           f"#sakura not rendering (visible={z['sakuraVisible']}, z={z['sakura']})")
+    else:
+        worst = min(v for _, v in z["dialogs"]) if z["dialogs"] else None
+        ck(f"{tag}: decoration sits under every dialog "
+           f"(sakura {z['sakura']} < lowest dialog {worst})",
+           worst is not None and z["sakura"] < worst,
+           str(z["dialogs"]))
+
+    # Positive control: the same comparison must be capable of saying NO.
+    # Without this, a bug that made every z-index null would read as a pass.
+    ctrl = pg.evaluate("""() => {
+      const d = document.createElement('div');
+      d.style.cssText = 'position:fixed;inset:0;z-index:99999;pointer-events:none';
+      d.id = '__ctrl_overlay';
+      document.body.appendChild(d);
+      const z = parseInt(getComputedStyle(d).zIndex, 10);
+      const fl = parseInt(getComputedStyle(
+        document.querySelector('#flwrap')).zIndex, 10);
+      d.remove();
+      return z > fl;
+    }""")
+    ck(f"{tag}: the z-order check can detect an overlay ON TOP (control)", ctrl)
+    pg.close()
+
+
 def main():
     with sync_playwright() as p:
         b = p.chromium.launch()
         for tag, kw in (("phone", PHONE), ("desktop", DESKTOP)):
             ctx = b.new_context(**kw)
             run(ctx, tag)
+            check_decoration_under_dialogs(ctx, tag)
             ctx.close()
         b.close()
 

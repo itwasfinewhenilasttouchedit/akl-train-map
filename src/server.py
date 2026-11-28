@@ -377,6 +377,28 @@ async def api_archive(unit: str | None = None, limit: int = 200) -> JSONResponse
     return JSONResponse(a.stats())
 
 
+_FLEET_TTL_S = 300
+# (expires_at, rows). Raw `fleet()` rows are cached, NOT the folded result:
+# folding 186 rows is microseconds, and the fold is MUTATED by the live merge
+# below, so handing out a shared folded dict would let one request's live
+# annotation leak into the next one's cached copy.
+_fleet_cache: tuple[float, list[dict]] = (0.0, [])
+
+
+async def _fleet_archive(a) -> list[dict]:
+    """`Archive.fleet()`, off the event loop and TTL-cached. See api_fleet."""
+    global _fleet_cache
+    if a is None:
+        return []
+    now = time.time()
+    exp, rows = _fleet_cache
+    if now < exp:
+        return rows
+    rows = await asyncio.get_running_loop().run_in_executor(None, a.fleet)
+    _fleet_cache = (now + _FLEET_TTL_S, rows)
+    return rows
+
+
 @app.get("/api/fleet")
 async def api_fleet() -> JSONResponse:
     """Every unit the archive has ever seen, annotated where it is running now.
@@ -409,7 +431,22 @@ async def api_fleet() -> JSONResponse:
     recording was off", and guessing would put a wrong fact on a screen.
     """
     a = archive.get()
-    arch = a.fleet() if a is not None else []
+    # MEASURED, not assumed: on production (78.1 MB, 1,247,568 obs rows, 186
+    # unit labels) this GROUP BY takes ~455 ms. The query plan is already
+    # optimal -- `SEARCH o USING PRIMARY KEY (unit_pk=?)` off the clustered
+    # (unit_pk, ts) WITHOUT ROWID key, no table scan -- so there is nothing to
+    # tune; it is simply half a second of CPU.
+    #
+    # Two consequences, both handled here rather than left to bite:
+    #   1. Half a second inside `async def` blocks the WHOLE event loop, so one
+    #      person opening Fleet would stall every live-map poller and request.
+    #      Offloaded to a thread, exactly as `/api/archive/day` already does.
+    #   2. The answer barely changes -- a new unit label appears maybe once in
+    #      months -- so re-running it per request is waste. Cached for
+    #      FLEET_TTL_S.
+    # Only the ARCHIVE half is cached. Live annotation below is re-applied from
+    # STATE on every request, so Fleet is never staler than the map itself.
+    arch = await _fleet_archive(a)
 
     # set_no -> entry. Folded by the single set-number implementation.
     by_set: dict[int, dict] = {}
