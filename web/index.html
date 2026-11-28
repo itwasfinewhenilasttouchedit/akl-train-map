@@ -36,7 +36,12 @@
          --accent:#1F5BD7; --focus:#7FB3FF;
          /* --red was referenced by three 'selected' rules and never defined, so the
             selected state silently fell back to currentColor. */
-         --red:#7FB3FF; }
+         --red:#7FB3FF;
+         /* The fleet status glyph. 7.79:1 on --panel, measured, so the
+            triangle is legible without relying on hue — and the glyph carries
+            an aria-label/title regardless, because colour is never the only
+            carrier of a state in this app. */
+         --warn:#e0a500; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
               font:14px/1.45 "Segoe UI",system-ui,sans-serif; overflow:hidden; }
   #map { position:absolute; inset:0; background:var(--bg); }
@@ -288,15 +293,73 @@
      a rider types, or filtering a 100-unit list scrolls the control they are
      typing into off the top. */
   #fllist { margin-top:10px; overflow:auto; flex:1 1 auto; min-height:80px; }
-  .flrow { display:flex; align-items:center; gap:8px; justify-content:space-between;
-           border-top:1px solid var(--line); padding:8px 0; font-size:13px; }
+  /* FOUR COLUMNS, in the order a rider reads them: which set, what line, how
+     fast, is anything wrong. A grid, not a flex row with text-align: the
+     columns must line up DOWN the list, or scanning 95 rows for the one
+     triangle means reading every row instead of one column.
+     The two data columns are `minmax(0,1fr)`/fixed so a long line name
+     ("Eastern / Western") truncates instead of pushing the glyph off the
+     right edge -- measured at 390px, where the panel is 92vw = 358px. */
+  .flrow { display:grid; grid-template-columns: 4.6em minmax(0,1fr) 3.9em 1.6em;
+           align-items:center; gap:8px;
+           border-top:1px solid var(--line); padding:8px 0; font-size:13px;
+           width:100%; box-sizing:border-box; text-align:left;
+           background:none; border-left:0; border-right:0; border-bottom:0;
+           color:inherit; font-family:inherit; cursor:pointer; }
+  .flrow:hover, .flrow:focus-visible { background:rgba(255,255,255,.05); }
   .flrow .flu { font-variant-numeric:tabular-nums; }
+  .flrow .flline { color:var(--muted); font-size:11px;
+                   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .flrow .flspd { color:var(--muted); font-size:11px; text-align:right;
+                  font-variant-numeric:tabular-nums; }
+  /* The glyph is never the only carrier of its meaning: every one has a
+     title AND an aria-label naming the state in words, so a screen reader
+     and a colour-blind reader both get it. The tick is deliberately NOT
+     green-only and the triangle NOT red-only for the same reason. */
+  .flrow .flst { text-align:center; font-size:13px; line-height:1; }
+  .flrow .flst.bad { color:var(--warn, #e0a500); }
+  .flrow .flst.ok { color:var(--muted); }
   .flrow .flm { color:var(--muted); font-size:11px; text-align:right; }
   /* Live units get the accent; everything else is deliberately plain. The
-     colour is NOT the only carrier — the row says "live" in words too. */
+     colour is NOT the only carrier — the row names the line in words too. */
   .flrow.live .flu { color:var(--accent); font-weight:700; }
   #flcount { color:var(--muted); font-size:11px; margin-top:8px; }
   #flwrap .acts { display:flex; gap:8px; justify-content:flex-end; margin-top:11px; }
+  /* ---- unit detail, opened from a fleet row ----
+     Sits at 961, one above #flwrap: it is opened FROM the fleet list and the
+     list stays mounted behind it, so a rider can go back to where they were.
+     Still inside the 900-960 dialog band's intent — decoration lives at 890
+     and must stay below (see src/shot_fleet.py). */
+  #fuwrap { position:absolute; inset:0; z-index:961; background:rgba(5,8,12,.72);
+            display:none; align-items:center; justify-content:center; }
+  #fuwrap.on { display:flex; }
+  #fu { width:380px; max-width:92vw; box-sizing:border-box;
+        padding:16px 18px; max-height:88vh;
+        display:flex; flex-direction:column; }
+  #fu h2 { margin:0 0 3px; font-size:15px; }
+  #fu .hint { color:var(--muted); font-size:11px; margin-bottom:9px; }
+  #fubody { overflow:auto; flex:1 1 auto; }
+  /* The coverage line is NOT small print. The archive is days old, not years,
+     so every number on this panel is a statement about that window and the
+     window is stated beside them rather than below the fold. */
+  #fucover { font-size:10.5px; color:var(--muted); border:1px solid var(--line);
+             border-radius:6px; padding:6px 8px; margin-bottom:9px; }
+  .fustat { display:flex; justify-content:space-between; gap:10px;
+            border-top:1px solid var(--line); padding:6px 0; font-size:12px; }
+  .fustat .k { color:var(--muted); }
+  .fustat .v { font-variant-numeric:tabular-nums; text-align:right; }
+  #fu h3 { margin:12px 0 2px; font-size:12px; color:var(--muted);
+           text-transform:uppercase; letter-spacing:.06em; }
+  /* Per-day activity. A bar whose height is the day's fix count relative to
+     the busiest day — a proportion of measured rows, not a modelled trend. */
+  .fudays { display:flex; align-items:flex-end; gap:3px; height:44px;
+            margin-top:4px; }
+  .fuday { flex:1 1 0; min-width:4px; background:var(--accent);
+           opacity:.75; border-radius:2px 2px 0 0; min-height:2px; }
+  .fudaylbl { display:flex; gap:3px; margin-top:3px; font-size:9px;
+              color:var(--muted); }
+  .fudaylbl span { flex:1 1 0; text-align:center; overflow:hidden; }
+  #fu .acts { display:flex; gap:8px; justify-content:flex-end; margin-top:11px; }
   #jpwrap { position:absolute; inset:0; z-index:900; background:rgba(5,8,12,.62);
             display:none; align-items:center; justify-content:center; }
   #jpwrap.on { display:flex; }
@@ -1127,6 +1190,26 @@
     <div id="flcount" aria-live="polite"></div>
     <div id="fllist"></div>
     <div class="acts"><button class="btn" id="flclose">Close</button></div>
+  </div>
+</div>
+
+<!-- Unit detail. Opened by tapping a row in the Fleet list; the list stays
+     mounted behind it so Back returns to the same scroll position and query.
+     Everything on it is a count, an extreme or a copied field from the
+     archive, the live payload or the reports table — see /api/fleet/{set_no}.
+     The coverage window is rendered ABOVE the stats, not under them: the
+     archive is days old, not years, and a bare "13,500 observations" would
+     read as a service history. -->
+<div id="fuwrap" role="dialog" aria-modal="true" aria-labelledby="futitle">
+  <div id="fu" class="panel">
+    <h2 id="futitle">Unit</h2>
+    <div class="hint" id="fusub"></div>
+    <div id="fucover"></div>
+    <div id="fubody"></div>
+    <div class="acts">
+      <button class="btn" id="fumap">Show on map</button>
+      <button class="btn" id="fuclose">Back</button>
+    </div>
   </div>
 </div>
 
@@ -3882,7 +3965,7 @@ document.addEventListener('click', (e) => {
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || panel.hidden) return;
     // Only when nothing deeper is open: Esc must close the innermost thing.
-    if (document.querySelector('#flwrap.on, #stwrap.on, #svwrap.on, #fbwrap.on, #jpwrap.on')) return;
+    if (document.querySelector('#flwrap.on, #fuwrap.on, #stwrap.on, #svwrap.on, #fbwrap.on, #jpwrap.on')) return;
     setOpen(false);
     btn.focus();
   });
@@ -3899,35 +3982,69 @@ function flRow(u) {
   const live = u.live;
   // Units are identified by their SET number, which is what AT, the depot and
   // the platform displays all use. `labels` holds the raw feed labels the
-  // archive saw for it; shown as the secondary fact, not as the identity.
+  // archive saw for it; shown on the unit page, not crowding the list row.
   const name = u.set_no ? ('AM ' + u.set_no) : (u.unit || '?');
-  let right;
+
+  // COLUMN 2: the line. COLUMN 3: the speed. Both come from the LIVE half of
+  // /api/fleet and only from there — they are true for this instant only.
+  // A unit that is not running gets an em dash in both, which is the honest
+  // answer: we are not claiming it is stabled (the archive cannot tell
+  // stabled from withdrawn from not-recorded), only that it is not in this
+  // minute's feed. Roughly half the fleet reads as dashes at any time and
+  // that is correct.
+  const DASH = '\u2014';
+  let line = DASH, lineTitle = 'not running right now';
+  let spd = DASH, spdTitle = 'not running right now';
   if (live) {
-    // Words, not just the colour: "live" must survive a greyscale screenshot
-    // and a colour-blind reader.
-    const bits = ['live'];
-    if (live.cars) bits.push(live.cars + '-car');
-    if (!live.in_service) bits.push('not in service');
-    else if (live.route) bits.push(live.route);
-    if (live.to) bits.push('to ' + live.to);
-    right = esc(bits.join(' \u00b7 '));
-  } else if (u.obs) {
-    right = esc(u.obs.toLocaleString() + ' obs');
-  } else {
-    // Honest about the one thing the data cannot say. A label interned as a
-    // coupling partner has never been observed on its own, and that is NOT
-    // the same claim as "withdrawn" — which this archive cannot tell apart
-    // from "stabled" or "we were not recording", so it is not asserted.
-    right = 'seen as a coupled partner only';
+    if (live.line) { line = live.line; lineTitle = live.line; }
+    else if (live.route) { line = live.route; lineTitle = live.route; }
+    else { line = 'no line named'; lineTitle = 'running, but the feed names no line'; }
+    // 0.0 km/h is a MEASUREMENT (standing at a platform), not missing data,
+    // so `== null` rather than a falsy test — `!live.speed_kmh` would print a
+    // dash for a stationary train and claim we did not know.
+    if (live.speed_kmh == null) { spd = '?'; spdTitle = 'running, but no speed in this fix'; }
+    else { spd = Math.round(live.speed_kmh) + ''; spdTitle = live.speed_kmh.toFixed(1) + ' km/h'; }
   }
+
+  // COLUMN 4: the status glyph. `n_neg`, NOT `n`: praise is a report and must
+  // never raise a warning. `reports: null` means the summary could not be
+  // read, which is NOT a clean bill of health and says so.
+  // THE GLYPH IS NEVER ALONE. Each state carries a title and an aria-label
+  // naming it in words, so a screen reader announces it and a colour-blind
+  // reader is not relying on hue.
+  const rep = u.reports;
+  let glyph = '?', gcls = '', glabel = 'report state not known';
+  if (rep) {
+    if (rep.n_neg > 0) {
+      glyph = '\u26a0';                    // warning triangle
+      gcls = 'bad';
+      glabel = rep.n_neg + ' open report' + (rep.n_neg === 1 ? '' : 's') +
+        (rep.worst_neg ? ', worst severity ' + rep.worst_neg : '') +
+        (rep.top_category_label ? ' (' + rep.top_category_label + ')' : '');
+    } else {
+      glyph = '\u2713';                    // tick
+      gcls = 'ok';
+      glabel = rep.n_praise > 0
+        ? 'no open reports (' + rep.n_praise + ' praise)'
+        : 'no open reports';
+    }
+  }
+
   // Every interpolation below goes through esc() or a numeric coercion (|0),
   // and the only markup is ours — the same rule the board and the service card
   // follow. data-set is forced to an integer so it can never carry an
   // attribute-breaking character even if the payload were tampered with.
-  return `<div class="flrow${live ? ' live' : ''}" data-set="${u.set_no ? (u.set_no | 0) : ''}">
+  // A <button>, not a <div role=button>: a row OPENS something, so it must be
+  // keyboard-focusable and Enter/Space-activatable without hand-rolling that.
+  const sn = u.set_no ? (u.set_no | 0) : '';
+  return `<button type="button" class="flrow${live ? ' live' : ''}" data-set="${sn}"
+            aria-label="${esc(name)}, ${esc(lineTitle)}, ${esc(spdTitle)}, ${esc(glabel)}">
             <span class="flu">${esc(name)}</span>
-            <span class="flm">${right}</span>
-          </div>`;
+            <span class="flline" title="${esc(lineTitle)}">${esc(line)}</span>
+            <span class="flspd" title="${esc(spdTitle)}">${esc(spd)}</span>
+            <span class="flst ${gcls}" role="img" title="${esc(glabel)}"
+                  aria-label="${esc(glabel)}">${glyph}</span>
+          </button>`;
 }
 
 function flRender() {
@@ -4002,16 +4119,229 @@ function closeFleet() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && wrap && wrap.classList.contains('on')) closeFleet();
   });
-  // A row names a set, and a set number is a link to that train everywhere
-  // else in this app, so it is here too. Delegated: the list is rebuilt on
-  // every keystroke. Rows with no set number stay inert rather than offering
-  // a dead tap.
+  // A row OPENS the unit's detail panel. It used to fly the map to the set,
+  // which answered a different question: a rider tapping a row in a list of 95
+  // units wants to know about that unit, and the map is one tap further in
+  // ("Show on map" on the panel). Delegated: the list is rebuilt on every
+  // keystroke. Rows with no set number stay inert rather than offering a dead
+  // tap.
   if (wrap) document.getElementById('fllist').addEventListener('click', e => {
     const row = e.target.closest('.flrow[data-set]');
     if (!row || !row.dataset.set) return;
-    closeFleet();
-    goToSet(row.dataset.set);
+    openUnit(row.dataset.set);
   });
+})();
+
+// ---- unit detail -----------------------------------------------------------
+// Opened from a Fleet row. The Fleet list stays mounted underneath, so Back
+// returns the rider to their place in it rather than to the map.
+let FUNIT = null;
+let FUOPENER = null;
+
+function fuStat(k, v, title) {
+  return `<div class="fustat"><span class="k">${esc(k)}</span>` +
+         `<span class="v"${title ? ` title="${esc(title)}"` : ''}>${esc(v)}</span></div>`;
+}
+
+function fuWhen(ts) {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleString('en-NZ',
+    { weekday:'short', day:'numeric', month:'short', hour:'numeric', minute:'2-digit' });
+}
+
+// `reports.occurred_at` is an ISO-8601 STRING with an offset
+// ("2026-11-28T14:46:03+13:00"), not epoch seconds like every archive `ts` on
+// this panel. Passing it through fuWhen() multiplied a string by 1000 and
+// rendered "Invalid Date" on every report row — caught by the render gate, not
+// by reading the code, because both fields are called "when this happened".
+function fuWhenIso(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(s);
+  return d.toLocaleString('en-NZ',
+    { weekday:'short', day:'numeric', month:'short', hour:'numeric', minute:'2-digit' });
+}
+
+function fuRender() {
+  const sub = document.getElementById('fusub');
+  const cov = document.getElementById('fucover');
+  const body = document.getElementById('fubody');
+  if (!sub || !cov || !body) return;
+  const d = FUNIT;
+  if (!d) { sub.textContent = 'Loading…'; cov.textContent = ''; body.innerHTML = ''; return; }
+  document.getElementById('futitle').textContent = d.unit || ('AM ' + d.set_no);
+
+  const a = d.archive || {};
+  const live = d.live;
+  sub.textContent = live
+    ? (live.in_service ? 'Running now' : 'In the feed now, not in service')
+    : 'Not in this minute\u2019s feed';
+
+  // THE COVERAGE LINE. Stated before any number, in the same words every
+  // time: this archive began days ago and nothing on this panel is a
+  // lifetime figure. Derived from the response, never hardcoded — the window
+  // grows every day and a baked "4.7 days" would rot immediately.
+  const c = a.coverage || {};
+  if (c.first_ts && c.last_ts) {
+    const days = ((c.last_ts - c.first_ts) / 86400);
+    cov.textContent = 'All figures below cover our own recording window only: ' +
+      fuWhen(c.first_ts) + ' to ' + fuWhen(c.last_ts) + ' (' +
+      days.toFixed(1) + ' days). Nothing before that was recorded, so this is ' +
+      'not a service history.';
+  } else {
+    cov.textContent = 'No recording window — the archive holds no observations, ' +
+      'so the figures below are only what is running right now.';
+  }
+
+  let h = '';
+  if (live) {
+    h += '<h3>Right now</h3>';
+    h += fuStat('Line', live.line || live.route || 'no line named');
+    h += fuStat('Speed', live.speed_kmh == null ? 'not in this fix'
+                : live.speed_kmh.toFixed(1) + ' km/h');
+    if (live.to) h += fuStat('Next stop', live.to + (live.platform ? ' plat ' + live.platform : ''));
+    if (live.dest) h += fuStat('Destination', live.dest);
+    if (live.delay_s != null) h += fuStat('Delay',
+      Math.abs(live.delay_s) < 60 ? 'on time'
+        : (Math.round(live.delay_s / 60) + ' min ' + (live.delay_s > 0 ? 'late' : 'early')));
+    h += fuStat('Formation', (live.cars || 3) + ' carriages');
+    // The partner is a FACT about this minute's consist, and it is named
+    // rather than implied, because a report files against a set and a rider
+    // walking through the gangway is on both.
+    if (live.partner_set) h += fuStat('Coupled to', 'AM ' + live.partner_set +
+      (live.ordered ? '' : ' (halves not yet ordered)'));
+  }
+
+  h += '<h3>In the archive</h3>';
+  if (!a.enabled) {
+    h += `<div class="fustat"><span class="k">Archive off — no history is being recorded.</span></div>`;
+  } else if (!a.known) {
+    h += `<div class="fustat"><span class="k">This set has never appeared in our recording window. That is not the same as "it does not run".</span></div>`;
+  } else {
+    h += fuStat('Observations', (a.obs || 0).toLocaleString());
+    h += fuStat('First seen', fuWhen(a.first_ts));
+    h += fuStat('Last seen', fuWhen(a.last_ts));
+    // Days active OUT OF the days the archive covers at all — "3 days" alone
+    // is meaningless when the window itself is 5 days old, and would read as
+    // a long absence on a window that is short.
+    const covDays = (c.first_ts && c.last_ts)
+      ? Math.max(1, Math.round((c.last_ts - c.first_ts) / 86400) + 1) : null;
+    h += fuStat('Days active', (a.days_active || 0) +
+      (covDays ? ' of ' + covDays + ' recorded' : ''));
+    if (a.trips) h += fuStat('Distinct trips', a.trips.toLocaleString());
+    if ((d.labels || []).length) h += fuStat('Feed labels', d.labels.join(', '));
+
+    const t = a.top_speed;
+    if (t) {
+      h += '<h3>Fastest fix recorded</h3>';
+      h += fuStat('Top speed', t.kmh.toFixed(1) + ' km/h');
+      h += fuStat('When', fuWhen(t.ts));
+      h += fuStat('Where', t.near || t.to || t.from || 'position recorded, station not resolved');
+      // THE COUPLED-PARTNER CROSS-CHECK, stated on the page and not only in
+      // the code. A lone GPS spike and a record look identical; the other
+      // half of the consist reading the same speed in the same second is the
+      // cheapest validity test there is. AM-class EMUs are geared for
+      // 110 km/h, so an uncorroborated figure above that is reported as
+      // unconfirmed rather than as a record.
+      if (t.partner && t.partner_kmh != null) {
+        h += fuStat('Cross-check', t.corroborated
+          ? 'confirmed — ' + t.partner + ' read ' + t.partner_kmh.toFixed(1) +
+            ' km/h in the same second'
+          : 'DISAGREES — ' + t.partner + ' read ' + t.partner_kmh.toFixed(1) +
+            ' km/h in the same second');
+      } else {
+        h += fuStat('Cross-check', 'none — this set was running alone, so no ' +
+          'second GPS confirms it');
+      }
+    }
+
+    // PER-DAY ACTIVITY. Bars are a day's fix count as a fraction of the
+    // busiest day in the window — measured rows, no smoothing, no trend.
+    const days = a.days || [];
+    if (days.length) {
+      const max = Math.max.apply(null, days.map(x => x.fixes || 0)) || 1;
+      h += '<h3>Fixes per day</h3>';
+      h += '<div class="fudays" id="fudays">' + days.map(x =>
+        `<span class="fuday" style="height:${Math.max(2, Math.round(100 * (x.fixes || 0) / max))}%"` +
+        ` title="${esc(x.day)}: ${(x.fixes || 0).toLocaleString()} fixes"` +
+        ` role="img" aria-label="${esc(x.day)}: ${(x.fixes || 0).toLocaleString()} fixes"></span>`
+      ).join('') + '</div>';
+      h += '<div class="fudaylbl">' + days.map(x =>
+        `<span>${esc(String(x.day).slice(8))}</span>`).join('') + '</div>';
+    }
+  }
+
+  h += '<h3>Reports</h3>';
+  const reps = d.reports || [];
+  if (!reps.length) {
+    h += `<div class="fustat"><span class="k">No reports filed against this set.</span></div>`;
+  } else {
+    // Free-text notes are deliberately NOT rendered, the same rule the ticker
+    // follows. Category, severity, carriage and date are the public facts.
+    h += reps.slice(0, 10).map(r =>
+      `<div class="fustat"><span class="k">${esc(r.category_label || r.category || 'report')}` +
+      (r.car_pos ? ' · car ' + (r.car_pos | 0) : '') +
+      (r.resolved ? ' · resolved' : '') + `</span>` +
+      `<span class="v">${esc(fuWhenIso(r.occurred_at))}</span></div>`).join('');
+  }
+  // SAFE innerHTML: every value interpolated into `h` passes through esc()
+  // (fuStat escapes both key and value) or a numeric coercion, and the only
+  // markup is the literal tags written here — the same rule the board, the
+  // service card and the fleet list follow. No field from the feed or the
+  // reports table reaches the DOM unescaped.
+  body.innerHTML = h;
+
+  // "Show on map" is only offered when there IS a marker to fly to. A button
+  // that silently does nothing is worse than an absent one.
+  const mb = document.getElementById('fumap');
+  if (mb) mb.style.display = live ? '' : 'none';
+}
+
+async function openUnit(sn) {
+  sn = String(sn || '').trim();
+  if (!sn || sn === '0') return;
+  FUOPENER = document.activeElement;
+  FUNIT = null;
+  document.getElementById('futitle').textContent = 'AM ' + sn;
+  document.getElementById('fuwrap').classList.add('on');
+  fuRender();
+  document.getElementById('fuclose').focus();
+  try {
+    const r = await fetch('/api/fleet/' + encodeURIComponent(sn), {cache: 'no-store'});
+    FUNIT = await r.json();
+  } catch (e) {
+    FUNIT = {set_no: sn, unit: 'AM ' + sn, archive: {enabled: false}, reports: []};
+    document.getElementById('fusub').textContent = 'Could not load this unit.';
+  }
+  fuRender();
+}
+
+function closeUnit() {
+  document.getElementById('fuwrap').classList.remove('on');
+  if (FUOPENER && FUOPENER.focus) FUOPENER.focus();
+}
+
+(function () {
+  const wrap = document.getElementById('fuwrap');
+  if (!wrap) return;
+  document.getElementById('fuclose').addEventListener('click', closeUnit);
+  document.getElementById('fumap').addEventListener('click', () => {
+    const sn = FUNIT && FUNIT.set_no;
+    closeUnit();
+    closeFleet();
+    if (sn) goToSet(sn);
+  });
+  wrap.addEventListener('click', e => { if (e.target === wrap) closeUnit(); });
+  // Esc closes the unit panel ONLY, leaving the Fleet list open underneath —
+  // the list is where the rider came from, and dumping them on the map would
+  // lose their query and their scroll position. Registered in the capture
+  // phase so it runs before the Fleet handler and can stop it.
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && wrap.classList.contains('on')) {
+      e.stopPropagation();
+      closeUnit();
+    }
+  }, true);
 })();
 
 

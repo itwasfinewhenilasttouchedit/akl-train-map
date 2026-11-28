@@ -504,6 +504,19 @@ async def api_fleet() -> JSONResponse:
                 "ordered": bool(sv.get("ordered")),
                 "in_service": bool(sv.get("in_service")),
                 "route": lead.get("route") or None,
+                # `line` and `speed_kmh` are merged HERE, in the live
+                # annotation, and deliberately NOT into the cached archive
+                # half: both are true only for this instant. A line name in a
+                # 300 s cache would still name a line a stabled unit left five
+                # minutes ago, and a cached speed is a number that was once
+                # right -- which is worse than a dash, because a dash is
+                # honest about not knowing.
+                #
+                # `route` is the compact code ("E-W"); `line` is the rider-
+                # facing name ("Eastern / Western"). Both are carried: the
+                # list shows the name, and the code is what alert matching
+                # elsewhere keys on.
+                "line": lead.get("line") or None,
                 "from": lead.get("from") or None,
                 "to": lead.get("to") or None,
                 "trip_id": str(lead["trip_id"]) if lead.get("trip_id") else None,
@@ -512,6 +525,36 @@ async def api_fleet() -> JSONResponse:
             }
             if e["source"] == "archive":
                 e["source"] = "both"
+
+    # Open-report state, from the ONE summary implementation the map already
+    # badges trains with. `n_neg`/`worst_neg` are used, NOT `n`/`worst`:
+    # praise is a report too, and a unit whose only report is "lovely driver"
+    # must not raise a warning triangle. That distinction already exists in
+    # feedback.summary() precisely because it was once got wrong.
+    try:
+        fb = feedback.summary(_live_trips())
+    except Exception:  # noqa: BLE001
+        # A feedback-DB failure must not take the fleet list down with it. The
+        # absence is reported as `reports: None` -> "not known", never as
+        # "no reports", which would be an invented clean bill of health.
+        fb = None
+    for e in by_set.values():
+        if fb is None:
+            e["reports"] = None
+            continue
+        r = fb.get(str(e["set_no"])) or {}
+        e["reports"] = {
+            "n": int(r.get("n") or 0),
+            "n_neg": int(r.get("n_neg") or 0),
+            "worst_neg": r.get("worst_neg"),
+            "n_praise": int(r.get("n_praise") or 0),
+            "top_category_label": r.get("top_category_label"),
+            "last": r.get("last"),
+        }
+    for e in unkeyed:
+        # No set number means no key into the summary, so the state is unknown
+        # rather than clean.
+        e["reports"] = None
 
     units = sorted(by_set.values(), key=lambda e: e["set_no"]) + unkeyed
     for e in units:
@@ -525,6 +568,122 @@ async def api_fleet() -> JSONResponse:
         "ts": d.get("ts"),
         "units": units,
     })
+
+
+@app.get("/api/fleet/{set_no}")
+async def api_fleet_unit(set_no: int) -> JSONResponse:
+    """One set: what the archive recorded, what it is doing now, who reported it.
+
+    THE COVERAGE WINDOW IS PART OF THE ANSWER, NOT A FOOTNOTE
+    ---------------------------------------------------------
+    `archive.coverage` carries the archive's own first/last observation and the
+    span in hours. At the time of writing that span is DAYS, not years --
+    recording began 2026-11-23 -- so "12,000 observations" and "top speed
+    112 km/h" are statements about a few days and must be rendered as such. A
+    page that showed those numbers bare would read as a service history. The
+    client prints the window beside the stats for exactly this reason.
+
+    NOTHING HERE IS MODELLED. Every figure is a count, a min/max, or a value
+    copied from a row:
+      * `archive.obs` / `days` / `days_active` -- counts of stored rows.
+      * `archive.top_speed` -- the single fastest row with `fix_age_s <= 60`,
+        returned WITH the coupled partner's speed at the same second. An
+        uncorroborated record is reported as uncorroborated rather than
+        quietly presented as fact: AM-class EMUs are geared for 110 km/h, and
+        a lone GPS spike is indistinguishable from a record until the other
+        half of the consist agrees.
+      * `live` -- the SAME published service block /api/fleet serves, so the
+        two screens cannot disagree about what a unit is doing.
+      * `reports` -- `feedback.list_reports`, the same rows the popup shows.
+
+    Mileage, build date, depot, refurbishment and withdrawal status are NOT
+    here because they are not in this data. See /api/fleet's docstring.
+    """
+    if set_no <= 0 or set_no > 9999:
+        return JSONResponse({"error": "not a set number"}, status_code=400)
+    a = archive.get()
+
+    # Labels come from the archive's own `unit` table folded by the ONE
+    # set-number implementation -- not from a guessed "AMP {n}", which would
+    # miss the bare-number partner twins and under-count every stat below.
+    labels: list[str] = []
+    for row in await _fleet_archive(a):
+        if feedback.set_number(row["label"]) == set_no:
+            labels.append(row["label"])
+    labels.sort()
+
+    stats = {"enabled": False}
+    if a is not None:
+        stats = await asyncio.get_running_loop().run_in_executor(
+            None, a.unit_stats, labels)
+
+    d = STATE.get("data") or {}
+    by_id = {t.get("id"): t for t in (d.get("trains") or [])}
+    live = None
+    for sv in (d.get("services") or []):
+        if set_no not in {int(s) for s in (sv.get("set_nos") or [])}:
+            continue
+        lead = by_id.get(sv.get("lead_id")) or {}
+        partner = [int(s) for s in (sv.get("set_nos") or [])
+                   if int(s) != set_no]
+        live = {
+            "lead_id": sv.get("lead_id"),
+            "cars": sv.get("cars"),
+            "ordered": bool(sv.get("ordered")),
+            "in_service": bool(sv.get("in_service")),
+            "set_nos": [int(s) for s in (sv.get("set_nos") or [])],
+            "partner_set": partner[0] if partner else None,
+            "line": lead.get("line") or None,
+            "route": lead.get("route") or None,
+            "speed_kmh": lead.get("speed_kmh"),
+            "from": lead.get("from") or None,
+            "to": lead.get("to") or None,
+            "dest": lead.get("dest") or None,
+            "delay_s": lead.get("delay_s"),
+            "platform": lead.get("platform") or None,
+            "trip_id": str(lead["trip_id"]) if lead.get("trip_id") else None,
+            "lat": lead.get("lat"), "lon": lead.get("lon"),
+        }
+        break
+
+    reports = await asyncio.get_running_loop().run_in_executor(
+        None, feedback.list_reports, set_no, 20)
+    return JSONResponse({
+        "set_no": set_no,
+        "unit": f"AM {set_no}",
+        "labels": labels,
+        # "we have no record of this set" is a real answer and is said plainly.
+        # It is NOT the same as "this set does not exist" -- recording started
+        # days ago and a unit stabled since then would look identical.
+        "known": bool(labels) or live is not None,
+        "archive": stats,
+        "live": live,
+        "reports": reports,
+        "ts": d.get("ts"),
+    })
+
+
+@app.get("/api/archive/days")
+async def api_archive_days(n: int = 14) -> JSONResponse:
+    """Per-day activity for the last `n` days that have data.
+
+    THIS EXISTS BECAUSE /api/archive/day IS SINGULAR AND TAKES `day`, NOT
+    `days`. `/api/archive/day?days=14` returns ONE day -- today -- because
+    FastAPI ignores an unknown query parameter and `day` then defaults to
+    today. Nothing was clipped and no data was missing; the parameter simply
+    was not the one that endpoint has. That endpoint answers "how was this
+    day, optionally against that day"; nothing answered "what days do we
+    have", which is what a history strip needs. So it is a separate route
+    rather than a fourth meaning bolted onto `day`.
+    """
+    a = archive.get()
+    if a is None:
+        return JSONResponse({"enabled": False, "days": []})
+    n = max(1, min(int(n or 14), 400))
+    days = await asyncio.get_running_loop().run_in_executor(
+        None, a.day_series, n)
+    return JSONResponse({"enabled": True, "requested": n,
+                         "returned": len(days), "days": days})
 
 
 @app.get("/api/archive/day")

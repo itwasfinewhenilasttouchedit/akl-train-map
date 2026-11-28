@@ -722,6 +722,164 @@ class Archive:
         except Exception as exc:  # noqa: BLE001
             return {"enabled": True, "error": f"{type(exc).__name__}: {exc}"}
 
+    def day_series(self, n: int = 14) -> list[dict]:
+        """Per-local-day activity for the last `n` days that HAVE data.
+
+        WHY THIS IS NOT `day_summary` CALLED IN A LOOP
+        ---------------------------------------------
+        `day_summary` is a punctuality report: several full passes over one
+        day's rows plus a delay-percentile sort. Fourteen of those is fourteen
+        times the work for a sparkline. This is ONE grouped pass, and it asks
+        only what a history strip can honestly show.
+
+        Days with no rows are absent rather than reported as zero: "we were not
+        recording" and "nothing ran" are different claims, and the archive
+        cannot tell them apart (see `poll` for the one that can).
+        """
+        if self._db is None:
+            return []
+        try:
+            d = f"date(ts,'unixepoch','{self.TZ}')"
+            rows = self._db.execute(
+                f"SELECT {d} AS day, count(*), count(DISTINCT unit_pk),"
+                f" count(DISTINCT trip_pk), max(speed_dkmh), min(ts), max(ts)"
+                f" FROM obs GROUP BY 1 ORDER BY 1 DESC LIMIT ?",
+                (max(1, int(n)),)).fetchall()
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("archive: day_series failed: %s", exc)
+            return []
+        out = [{"day": r[0], "fixes": r[1], "units": r[2], "trips": r[3],
+                "top_speed_kmh": (r[4] / 10.0) if r[4] else None,
+                "first_ts": r[5], "last_ts": r[6]} for r in rows]
+        out.reverse()          # oldest first: a history strip reads left to right
+        return out
+
+    def unit_stats(self, labels: list[str]) -> dict:
+        """Everything the archive can honestly say about ONE set.
+
+        `labels` is the caller's list of feed labels for the set -- the fold
+        from label to set number lives in `feedback.set_number` and nowhere
+        else, so this method is told which labels to union rather than
+        re-deriving the rule (the duplicated-rule mistake this codebase has
+        already paid for once).
+
+        EVERY FIGURE HERE IS A COUNT OR AN EXTREME OF STORED ROWS. Nothing is
+        modelled, estimated or annualised. In particular:
+          * speed comes from `speed_dkmh/10` with `fix_age_s <= 60`, because a
+            stale fix attributes a speed to the wrong place and time;
+          * the top speed is returned with the coupled partner's speed at the
+            SAME second when there is one, because a single GPS outlier is
+            indistinguishable from a record until the other half agrees;
+          * `coverage` is the archive's own span, so a 4-day window can never
+            be read as a fleet lifetime.
+        """
+        if self._db is None:
+            return {"enabled": False}
+        pks = [self._units[l] for l in labels if l in self._units]
+        if not pks:
+            return {"enabled": True, "known": False, "labels": list(labels),
+                    "obs": 0, "days": [], "days_active": 0,
+                    "top_speed": None, "coverage": self._coverage()}
+        q = ",".join("?" * len(pks))
+        try:
+            n, t0, t1, nt = self._db.execute(
+                f"SELECT count(*), min(ts), max(ts), count(DISTINCT trip_pk)"
+                f" FROM obs WHERE unit_pk IN ({q})", pks).fetchone()
+            d = f"date(ts,'unixepoch','{self.TZ}')"
+            days = [{"day": r[0], "fixes": r[1],
+                     "top_speed_kmh": (r[2] / 10.0) if r[2] else None,
+                     "in_service_fixes": r[3],
+                     "first_ts": r[4], "last_ts": r[5]}
+                    for r in self._db.execute(
+                        f"SELECT {d}, count(*), max(speed_dkmh),"
+                        f" sum(CASE WHEN flags & {F_IN_SERVICE} THEN 1 ELSE 0 END),"
+                        f" min(ts), max(ts)"
+                        f" FROM obs WHERE unit_pk IN ({q})"
+                        f" GROUP BY 1 ORDER BY 1", pks)]
+            top = self._db.execute(
+                f"SELECT o.ts, o.speed_dkmh, o.partner_pk, pn.name, pf.name,"
+                f" pt.name, o.lat, o.lon"
+                f" FROM obs o"
+                f" LEFT JOIN place pn ON pn.place_pk=o.near_pk"
+                f" LEFT JOIN place pf ON pf.place_pk=o.from_pk"
+                f" LEFT JOIN place pt ON pt.place_pk=o.to_pk"
+                f" WHERE o.unit_pk IN ({q}) AND o.fix_age_s IS NOT NULL"
+                f" AND o.fix_age_s <= 60 AND o.speed_dkmh IS NOT NULL"
+                f" ORDER BY o.speed_dkmh DESC LIMIT 1", pks).fetchone()
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("archive: unit_stats failed: %s", exc)
+            return {"enabled": True, "error": f"{type(exc).__name__}: {exc}"}
+
+        top_out = None
+        if top:
+            # The coupled-pair cross-check. A partner reading the same speed in
+            # the same second corroborates the record; a missing partner is
+            # reported as such rather than as agreement.
+            #
+            # `obs.partner_pk` points at the BARE-NUMBER TWIN ("1236") that
+            # `record()` interns, and that twin NEVER OWNS A ROW -- measured:
+            # 164 rows carry a partner_pk and zero of those partners have an
+            # obs row at the same ts. Looking the partner up by partner_pk
+            # alone therefore finds nothing and the cross-check silently
+            # becomes "no partner", which reads as "running alone" and quietly
+            # drops the one validity test a speed record has.
+            #
+            # So the twin's number is resolved back to the REAL labels that
+            # carry rows, using the same `trim(unit, 'A..Z ')` normalisation
+            # `v_obs_unit` and `v_train` already use -- over the 186-row `unit`
+            # table, so the obs lookup that follows is still a primary-key hit
+            # on (unit_pk, ts).
+            pspeed = plabel = None
+            if top[2] is not None:
+                _TRIM = "trim(unit,'ABCDEFGHIJKLMNOPQRSTUVWXYZ ')"
+                cands = [r[0] for r in self._db.execute(
+                    f"SELECT unit_pk FROM unit WHERE {_TRIM} ="
+                    f" (SELECT {_TRIM} FROM unit WHERE unit_pk=?)"
+                    f" AND unit_pk<>?", (top[2], top[2]))]
+                for cpk in cands:
+                    r = self._db.execute(
+                        "SELECT u.unit, o.speed_dkmh FROM obs o JOIN unit u"
+                        " USING(unit_pk) WHERE o.unit_pk=? AND o.ts=?",
+                        (cpk, top[0])).fetchone()
+                    if r and r[1] is not None:
+                        plabel, pspeed = r[0], r[1] / 10.0
+                        break
+                if plabel is None:
+                    # Name the partner even when it has no fix at that second:
+                    # "coupled to X, but X has no fix then" is a different and
+                    # more honest statement than "it was running alone".
+                    r = self._db.execute(
+                        "SELECT unit FROM unit WHERE unit_pk=?",
+                        (top[2],)).fetchone()
+                    if r:
+                        plabel = r[0]
+            top_out = {
+                "kmh": top[1] / 10.0, "ts": top[0],
+                "near": top[3], "from": top[4], "to": top[5],
+                "lat": top[6], "lon": top[7],
+                "partner": plabel, "partner_kmh": pspeed,
+                "corroborated": (pspeed is not None
+                                 and abs(pspeed - top[1] / 10.0) <= 5.0),
+            }
+        return {"enabled": True, "known": True, "labels": list(labels),
+                "obs": n or 0, "first_ts": t0, "last_ts": t1,
+                "trips": nt or 0, "days": days, "days_active": len(days),
+                "top_speed": top_out, "coverage": self._coverage()}
+
+    def _coverage(self) -> dict:
+        """The archive's own window, so no page can imply more history than
+        there is. Nothing prunes `obs`, so this only ever grows."""
+        if self._db is None:
+            return {"first_ts": None, "last_ts": None, "span_hours": None}
+        try:
+            t0, t1 = self._db.execute(
+                "SELECT min(ts), max(ts) FROM obs").fetchone()
+        except Exception:  # noqa: BLE001
+            return {"first_ts": None, "last_ts": None, "span_hours": None}
+        span = ((t1 - t0) / 3600.0) if (t0 and t1) else None
+        return {"first_ts": t0, "last_ts": t1,
+                "span_hours": round(span, 2) if span else None}
+
     def count(self) -> int:
         if self._db is None:
             return 0
